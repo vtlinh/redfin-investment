@@ -11,7 +11,7 @@ SimplyRETS is a REST wrapper over MLS RETS/RESO Web API feeds. The demo feed (`h
 ## Layout
 
 - `fetch.py` — fetch `/properties` with cursor pagination (`lastId`), flatten into columns, upsert into SQLite by `mls_id`.
-- `requirements.txt` — just `requests`; `sqlite3` is stdlib.
+- `pyproject.toml` / `uv.lock` — dependencies managed by [uv](https://docs.astral.sh/uv/); just `requests` (`sqlite3` is stdlib).
 - `properties.db` — SQLite file (gitignored).
 
 ## Schema
@@ -34,8 +34,8 @@ When a new field becomes important, promote it from `extra_info` to a real colum
 ## Run
 
 ```bash
-pip install -r requirements.txt
-python fetch.py        # idempotent upsert by mls_id
+uv sync                # install deps into .venv from uv.lock
+uv run fetch.py        # idempotent upsert by mls_id
 ```
 
 ## Notes
