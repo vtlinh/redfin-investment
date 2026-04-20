@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Investment properties — top cash-on-cash</title>
   <style>
     :root { color-scheme: light dark; }
@@ -170,6 +171,33 @@
     .reset-link { color: #666; font-size: 0.9rem; text-decoration: none; }
     .reset-link:hover { text-decoration: underline; }
     .match-count { align-self: center; line-height: 2rem; }
+    .projection { overflow-x: auto; }
+    @media (max-width: 640px) {
+      body { margin: 1rem auto; }
+      h1 { font-size: 1.4rem; }
+      .row { flex-wrap: wrap; padding: 0.75rem; gap: 0.5rem; }
+      .info { flex-basis: calc(100% - 3rem); }
+      .stats { flex-basis: 100%;
+               grid-template-columns: repeat(5, minmax(0, 1fr));
+               gap: 0 0.4rem; font-size: 0.8rem; text-align: center; }
+      .stat .val { font-size: 0.8rem; }
+      .list-header { display: none; }
+      .stats .stat::before {
+        display: block; content: attr(data-label);
+        font-size: 0.6rem; text-transform: uppercase;
+        color: #888; letter-spacing: 0.04em; font-weight: 600;
+      }
+      .chevron { margin-left: auto; }
+      .filters > .filter-row { flex-wrap: wrap; }
+      .filter input[type="text"] { width: 100%; }
+      .settings-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .settings-grid .field-cell,
+      .settings-grid .field-cell.pair { grid-column: span 1; }
+      .settings-grid .input-row { width: 100%; }
+      .pager a { padding: 0.5rem 0.7rem; }
+      table { font-size: 0.75rem; }
+      th, td { padding: 0.3rem 0.35rem; }
+    }
   </style>
 </head>
 <body>
@@ -340,23 +368,23 @@
         </a>
       </div>
       <div class="stats">
-        <div class="stat">
+        <div class="stat" data-label="List">
           <div class="val">${{ "{:,.0f}".format(p.list_price) }}</div>
         </div>
-        <div class="stat">
+        <div class="stat" data-label="Rent/mo">
           <div class="val">${{ "{:,.0f}".format(p.annual_income / 12) }}</div>
         </div>
-        <div class="stat">
+        <div class="stat" data-label="Cashflow">
           <div class="val {{ 'coc-positive' if p.cash_flow > 0 else 'coc-negative' }}">
             ${{ "{:,.0f}".format(p.cash_flow) }}
           </div>
         </div>
-        <div class="stat">
+        <div class="stat" data-label="CoC">
           <div class="val {{ 'coc-positive' if p.cash_on_cash_return > 0 else 'coc-negative' }}">
             {{ "%.1f"|format(p.cash_on_cash_return * 100) }}%
           </div>
         </div>
-        <div class="stat">
+        <div class="stat" data-label="15y ROI">
           <div class="val {{ 'coc-positive' if p.total_roi and p.total_roi > 0 else 'coc-negative' }}">
             {% if p.total_roi is not none %}{{ "%.0f"|format(p.total_roi * 100) }}%{% else %}—{% endif %}
           </div>
