@@ -523,6 +523,7 @@ def build_rent_comps(con):
         WHERE status='for_rent' AND list_price IS NOT NULL AND list_price > 0
               AND list_price <= ?
               AND bedrooms IS NOT NULL AND is_active=1
+              AND city IS NOT NULL
         """,
         (MAX_COMP_RENT,),
     ).fetchall()
@@ -555,14 +556,24 @@ def build_rent_comps(con):
 
 
 def main():
-    api_key = os.environ.get("RAPIDAPI_KEY")
-    if not api_key:
-        raise SystemExit("RAPIDAPI_KEY environment variable is required")
+    import sys
+    comps_only = "--comps-only" in sys.argv[1:]
 
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
     migrate(con)
+
+    if comps_only:
+        with con:
+            comp_rows = build_rent_comps(con)
+        con.close()
+        print(f"Rebuilt {comp_rows} rent comps -> {DB_PATH}")
+        return
+
+    api_key = os.environ.get("RAPIDAPI_KEY")
+    if not api_key:
+        raise SystemExit("RAPIDAPI_KEY environment variable is required")
 
     total_inserted = 0
     with con:
