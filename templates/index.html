@@ -387,143 +387,110 @@
     <div class="chev-spacer"></div>
   </div>
 
-  {% for p in properties %}
-  {% set rank = (page - 1) * page_size + loop.index %}
-  <div class="card">
-    <div class="row">
-      <div class="rank">#{{ rank }}</div>
-      <div class="info">
-        <a href="{{ p.url }}" target="_blank" rel="noopener">
-          <div class="addr">{{ p.address_line or "(address unavailable)" }}</div>
-          <div class="sub">
-            {{ p.city }}, {{ p.state }} {{ p.postal_code }} ·
-            {{ p.property_type.replace("_", " ") if p.property_type else "?" }}
-            {%- if p.bedrooms %} · {{ p.bedrooms }}bd{% endif %}
-            {%- if p.baths_total %}/{{ p.baths_total }}ba{% endif %}
-            {%- if p.area_sqft %} · {{ "{:,}".format(p.area_sqft) }} sqft{% endif %}
-            {%- if p.year_built %} · built {{ p.year_built }}{% endif %}
-          </div>
-          {% if p.num_units and p.num_units > 1 %}
-          <div class="sub">
-            {{ p.num_units }} units
-            {%- if p.unit_breakdown %} · {{ p.unit_breakdown | join(", ") }}{% endif %}
-          </div>
-          {% endif %}
-        </a>
-      </div>
-      <div class="stats">
-        <div class="stat" data-label="List">
-          <div class="val">${{ "{:,.0f}".format(p.list_price) }}</div>
-        </div>
-        <div class="stat stat-rent" data-label="Rent/mo"
-             {% if p.rent_comps %}
-             data-comps='{{ p.rent_comps | tojson }}'
-             onmouseenter="showRentTooltip(this)"
-             onmouseleave="scheduleHideTooltip()"
-             onclick="toggleRentTooltip(this)"
-             {% endif %}>
-          <div class="val">{% if p.annual_income is not none %}${{ "{:,.0f}".format(p.annual_income / 12) }}{% else %}<span style="color:#888">—</span>{% endif %}</div>
-        </div>
-        <div class="stat" data-label="Cashflow">
-          <div class="val {% if p.cash_flow is not none %}{{ 'coc-positive' if p.cash_flow > 0 else 'coc-negative' }}{% endif %}">
-            {% if p.cash_flow is not none %}${{ "{:,.0f}".format(p.cash_flow) }}{% else %}<span style="color:#888">—</span>{% endif %}
-          </div>
-        </div>
-        <div class="stat" data-label="CoC">
-          <div class="val {% if p.cash_on_cash_return is not none %}{{ 'coc-positive' if p.cash_on_cash_return > 0 else 'coc-negative' }}{% endif %}">
-            {% if p.cash_on_cash_return is not none %}{{ "%.1f"|format(p.cash_on_cash_return * 100) }}%{% else %}<span style="color:#888">—</span>{% endif %}
-          </div>
-        </div>
-        <div class="stat" data-label="15y ROI">
-          <div class="val {{ 'coc-positive' if p.total_roi and p.total_roi > 0 else 'coc-negative' }}">
-            {% if p.total_roi is not none %}{{ "%.0f"|format(p.total_roi * 100) }}%{% else %}<span style="color:#888">—</span>{% endif %}
-          </div>
-        </div>
-      </div>
-      {% if p.annual_income is not none %}
-      <button class="chevron" type="button"
-              aria-expanded="false"
-              aria-controls="proj-{{ p.property_id }}"
-              onclick="toggle(this)">&#x25BC;</button>
-      {% endif %}
-    </div>
-    <div class="projection" id="proj-{{ p.property_id }}">
-      <table>
-        <thead>
-          <tr>
-            <th>Year</th>
-            <th>Value</th>
-            <th>Rent</th>
-            <th class="proj-col-principal">Principal</th>
-            <th class="proj-col-interest">Interest</th>
-            <th class="proj-col-tax">Tax</th>
-            <th class="proj-col-expenses">Expenses</th>
-            <th>Cash flow</th>
-            <th>CoC</th>
-            <th class="proj-col-annual-roi">Annual ROI</th>
-            <th>Sell ROI</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for y in p.projection %}
-          <tr>
-            <td>{{ y.year }}</td>
-            <td>${{ "{:,.0f}".format(y.value) }}</td>
-            <td>${{ "{:,.0f}".format(y.rent) }}</td>
-            <td class="proj-col-principal">${{ "{:,.0f}".format(y.principal) }}</td>
-            <td class="proj-col-interest">${{ "{:,.0f}".format(y.interest) }}</td>
-            <td class="proj-col-tax">${{ "{:,.0f}".format(y.tax) }}</td>
-            <td class="proj-col-expenses">${{ "{:,.0f}".format(y.expenses) }}</td>
-            <td class="{{ 'coc-positive' if y.cash_flow > 0 else 'coc-negative' }}">
-              ${{ "{:,.0f}".format(y.cash_flow) }}
-            </td>
-            <td class="{{ 'coc-positive' if y.coc > 0 else 'coc-negative' }}">
-              {{ "%.1f"|format(y.coc * 100) }}%
-            </td>
-            <td class="proj-col-annual-roi {{ 'coc-positive' if y.annual_roi > 0 else 'coc-negative' }}">
-              {{ "%.1f"|format(y.annual_roi * 100) }}%
-            </td>
-            <td class="{{ 'coc-positive' if y.sell_roi > 0 else 'coc-negative' }}">
-              {{ "%.1f"|format(y.sell_roi * 100) }}%
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+  <div id="cards-container"
+       data-next-page="{% if pages > 1 %}2{% else %}0{% endif %}"
+       data-filter-qs="{{ filter_qs }}"
+       data-sort-qs="{{ sort_qs }}">
+    {% include "_cards.html" %}
   </div>
-  {% endfor %}
-
-  {% set fqs = ('&' + filter_qs) if filter_qs else '' %}
-  {% set sqs = '&' + sort_qs %}
-  <div class="pager">
-    <a href="?page={{ page - 1 }}{{ fqs }}{{ sqs }}" aria-disabled="{{ 'true' if page <= 1 else 'false' }}">&larr; Prev</a>
-    <span class="count">
-      {% if total %}Showing {{ (page - 1) * page_size + 1 }}–{{ (page - 1) * page_size + properties|length }} of {{ total }}{% else %}No matches{% endif %}
-    </span>
-    <a href="?page={{ page + 1 }}{{ fqs }}{{ sqs }}" aria-disabled="{{ 'true' if page >= pages else 'false' }}">Next &rarr;</a>
+  <div id="infinite-sentinel" style="height:1px"></div>
+  <div id="infinite-status" class="count" style="text-align:center;color:#666;font-size:0.9rem;padding:1rem 0">
+    {% if total %}{{ total }} match{{ "es" if total != 1 else "" }}{% else %}No matches{% endif %}
   </div>
 
   <div id="rent-tooltip"></div>
 
   <script>
+    // ---- Popup window for realtor URLs -----------------------------------
+    function openPopup(anchor, ev) {
+      if (ev) ev.preventDefault();
+      const url = anchor.href;
+      if (!url || url === "#") return false;
+      const w = 900, h = 800;
+      const left = Math.max(0, Math.round((screen.width  - w) / 2));
+      const top  = Math.max(0, Math.round((screen.height - h) / 2));
+      const id = "realtor_" + Math.abs(url.split("").reduce((a,c)=>((a<<5)-a+c.charCodeAt(0))|0, 0));
+      window.open(url, id, `left=${left},top=${top},width=${w},height=${h}`);
+      return false;
+    }
+
+    // ---- Infinite scroll --------------------------------------------------
+    (function() {
+      const container = document.getElementById("cards-container");
+      const sentinel  = document.getElementById("infinite-sentinel");
+      const status    = document.getElementById("infinite-status");
+      if (!container || !sentinel) return;
+      let loading = false;
+      async function loadNext() {
+        const next = parseInt(container.dataset.nextPage || "0", 10);
+        if (!next || loading) return;
+        loading = true;
+        status.textContent = "Loading…";
+        const fqs = container.dataset.filterQs;
+        const sqs = container.dataset.sortQs;
+        const qs  = `page=${next}&partial=1` + (fqs ? "&" + fqs : "") + (sqs ? "&" + sqs : "");
+        try {
+          const r = await fetch("/?" + qs);
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          const data = await r.json();
+          container.insertAdjacentHTML("beforeend", data.html);
+          if (data.has_more) {
+            container.dataset.nextPage = String(next + 1);
+            status.textContent = "";
+          } else {
+            container.dataset.nextPage = "0";
+            status.textContent = `${data.total} match${data.total === 1 ? "" : "es"}`;
+            io.disconnect();
+          }
+        } catch (err) {
+          status.textContent = "Error loading more: " + err.message;
+        } finally {
+          loading = false;
+        }
+      }
+      function maybeLoad() {
+        if (!container.dataset.nextPage || container.dataset.nextPage === "0") return;
+        const rect = sentinel.getBoundingClientRect();
+        if (rect.top < window.innerHeight + 600) loadNext();
+      }
+      window.addEventListener("scroll", maybeLoad, { passive: true });
+      window.addEventListener("resize", maybeLoad);
+      // Keep triggering until the viewport is filled (short initial pages).
+      const fillInterval = setInterval(() => {
+        if (!container.dataset.nextPage || container.dataset.nextPage === "0") {
+          clearInterval(fillInterval);
+          return;
+        }
+        maybeLoad();
+      }, 400);
+      maybeLoad();
+    })();
+
     // ---- Rent comp tooltip -----------------------------------------------
     const _tt = document.getElementById("rent-tooltip");
     let _ttHideTimer = null;
     let _ttOpen = false;
 
-    function buildTooltipContent(comps) {
+    function buildTooltipContent(comps, units) {
       const frag = document.createDocumentFragment();
       const hdr = document.createElement("div");
       hdr.className = "tooltip-header";
       hdr.textContent = "Rental comps (nearest to median)";
       frag.appendChild(hdr);
+      if (units && units > 1) {
+        const note = document.createElement("div");
+        note.className = "tooltip-header";
+        note.style.textTransform = "none";
+        note.style.letterSpacing = "0";
+        note.style.color = "#2563eb";
+        note.textContent = `Multi-unit (${units} units): rent is per-unit comp × ${units}`;
+        frag.appendChild(note);
+      }
       comps.forEach(c => {
         const a = document.createElement("a");
         a.href = c.url || "#";
-        a.target = "_blank";
-        a.rel = "noopener";
         a.className = "comp-row";
+        a.onclick = function(e) { return openPopup(a, e); };
         const addr = document.createElement("span");
         addr.className = "comp-addr";
         addr.textContent = c.address_line || "\u2014";
@@ -541,7 +508,8 @@
       clearTimeout(_ttHideTimer);
       const comps = JSON.parse(el.dataset.comps || "[]");
       if (!comps.length) return;
-      _tt.replaceChildren(buildTooltipContent(comps));
+      const units = parseInt(el.dataset.units || "0", 10);
+      _tt.replaceChildren(buildTooltipContent(comps, units));
       const rect = el.getBoundingClientRect();
       const left = Math.min(rect.left + window.scrollX,
                             window.innerWidth + window.scrollX - 308);

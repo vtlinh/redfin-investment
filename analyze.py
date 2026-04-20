@@ -34,7 +34,7 @@ DEFAULTS = {
     "holding_years":       15,
     "sell_cost_pct":       0.08,
     # Per-year growth rates for each cost line.
-    "rent_growth":         0.05,
+    "rent_growth":         0.03,
     "tax_growth":          0.03,
     "insurance_growth":    0.03,
     "hoa_growth":          0.03,
@@ -111,19 +111,28 @@ def total_roi(list_price, year1_rent, year1_mortgage, year1_components, cfg):
     return (cumulative_cash + net_sale - upfront_cash) / upfront_cash
 
 
-def comp_rent(conn, beds, baths, city):
-    """Look up cached median rent for (city, beds, round(baths)).
-    Returns None if no city-specific bucket exists — no county-wide fallback,
-    so properties without local comps are excluded from cashflow_analysis.
+def comp_rent(conn, beds, baths, city, postal_code=None):
+    """Look up cached median rent for (city, beds, round_half(baths)).
+    Falls back to external_rent_estimates by zip when no city-specific bucket
+    exists. Returns None if neither source has data (listing skipped).
     """
     if beds is None:
         return None
-    baths_i = int(round(baths)) if baths else 1
+    baths_r = round((baths or 1.0) * 2) / 2.0
     row = conn.execute(
         "SELECT median_rent FROM rent_comps WHERE city=? AND bedrooms=? AND baths=?",
-        (city, beds, baths_i),
+        (city, beds, baths_r),
     ).fetchone()
-    return row[0] if row else None
+    if row:
+        return row[0]
+    if postal_code:
+        ext = conn.execute(
+            "SELECT rent_estimate FROM external_rent_estimates WHERE postal_code=? AND bedrooms=? AND baths=? ORDER BY fetched_at DESC LIMIT 1",
+            (postal_code, beds, baths_r),
+        ).fetchone()
+        if ext:
+            return ext[0]
+    return None
 
 
 def estimate_units(property_type, baths_total):
@@ -162,13 +171,15 @@ def estimate_monthly_rent(conn, row):
     if num_units is None:
         num_units = estimate_units(row["property_type"], baths)
 
+    postal_code = row["postal_code"] if "postal_code" in (row.keys() if hasattr(row, "keys") else []) else None
+
     if num_units == 1:
-        return comp_rent(conn, beds, baths, row["city"])
+        return comp_rent(conn, beds, baths, row["city"], postal_code)
 
     if beds_per_unit and baths_per_unit and len(beds_per_unit) == num_units:
         total = 0.0
         for b, ba in zip(beds_per_unit, baths_per_unit):
-            r = comp_rent(conn, b, ba, row["city"])
+            r = comp_rent(conn, b, ba, row["city"], postal_code)
             if r is None:
                 return None
             total += r
@@ -178,7 +189,7 @@ def estimate_monthly_rent(conn, row):
         return None
     avg_beds = max(1, round(beds / num_units))
     avg_baths = max(1.0, baths / num_units) if baths else 1.0
-    per_unit = comp_rent(conn, avg_beds, avg_baths, row["city"])
+    per_unit = comp_rent(conn, avg_beds, avg_baths, row["city"], postal_code)
     return per_unit * num_units if per_unit is not None else None
 
 

@@ -1,0 +1,107 @@
+{% for p in properties %}
+{% set rank = (page - 1) * page_size + loop.index %}
+<div class="card">
+  <div class="row">
+    <div class="rank">#{{ rank }}</div>
+    <div class="info">
+      <a href="{{ p.url }}" onclick="return openPopup(this)">
+        <div class="addr">{{ p.address_line or "(address unavailable)" }}</div>
+        <div class="sub">
+          {{ p.city }}, {{ p.state }} {{ p.postal_code }} ·
+          {{ p.property_type.replace("_", " ") if p.property_type else "?" }}
+          {%- if p.bedrooms %} · {{ p.bedrooms }}bd{% endif %}
+          {%- if p.baths_total %}/{{ p.baths_total }}ba{% endif %}
+          {%- if p.area_sqft %} · {{ "{:,}".format(p.area_sqft) }} sqft{% endif %}
+          {%- if p.year_built %} · built {{ p.year_built }}{% endif %}
+        </div>
+        {% if p.num_units and p.num_units > 1 %}
+        <div class="sub">
+          {{ p.num_units }} units
+          {%- if p.unit_breakdown %} · {{ p.unit_breakdown | join(", ") }}{% endif %}
+        </div>
+        {% endif %}
+      </a>
+    </div>
+    <div class="stats">
+      <div class="stat" data-label="List">
+        <div class="val">${{ "{:,.0f}".format(p.list_price) }}</div>
+      </div>
+      <div class="stat stat-rent" data-label="Rent/mo"
+           {% if p.rent_comps %}
+           data-comps='{{ p.rent_comps | tojson }}'
+           {% if p.num_units and p.num_units > 1 %}data-units="{{ p.num_units }}"{% endif %}
+           onmouseenter="showRentTooltip(this)"
+           onmouseleave="scheduleHideTooltip()"
+           onclick="toggleRentTooltip(this)"
+           {% endif %}>
+        <div class="val">{% if p.annual_income is not none %}${{ "{:,.0f}".format(p.annual_income / 12) }}{% else %}<span style="color:#888">—</span>{% endif %}</div>
+      </div>
+      <div class="stat" data-label="Cashflow">
+        <div class="val {% if p.cash_flow is not none %}{{ 'coc-positive' if p.cash_flow > 0 else 'coc-negative' }}{% endif %}">
+          {% if p.cash_flow is not none %}${{ "{:,.0f}".format(p.cash_flow) }}{% else %}<span style="color:#888">—</span>{% endif %}
+        </div>
+      </div>
+      <div class="stat" data-label="CoC">
+        <div class="val {% if p.cash_on_cash_return is not none %}{{ 'coc-positive' if p.cash_on_cash_return > 0 else 'coc-negative' }}{% endif %}">
+          {% if p.cash_on_cash_return is not none %}{{ "%.1f"|format(p.cash_on_cash_return * 100) }}%{% else %}<span style="color:#888">—</span>{% endif %}
+        </div>
+      </div>
+      <div class="stat" data-label="IRR">
+        <div class="val {{ 'coc-positive' if p.total_roi and p.total_roi > 0 else 'coc-negative' }}">
+          {% if p.total_roi is not none %}{{ "%.0f"|format(p.total_roi * 100) }}%{% else %}<span style="color:#888">—</span>{% endif %}
+        </div>
+      </div>
+    </div>
+    {% if p.annual_income is not none %}
+    <button class="chevron" type="button"
+            aria-expanded="false"
+            aria-controls="proj-{{ p.property_id }}"
+            onclick="toggle(this)">&#x25BC;</button>
+    {% endif %}
+  </div>
+  <div class="projection" id="proj-{{ p.property_id }}">
+    <table>
+      <thead>
+        <tr>
+          <th>Year</th>
+          <th>Value</th>
+          <th>Rent</th>
+          <th class="proj-col-principal">Principal</th>
+          <th class="proj-col-interest">Interest</th>
+          <th class="proj-col-tax">Tax</th>
+          <th class="proj-col-expenses">Expenses</th>
+          <th>Cash flow</th>
+          <th>CoC</th>
+          <th class="proj-col-annual-roi">Ann. IRR</th>
+          <th>Sell ROI</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for y in p.projection %}
+        <tr>
+          <td>{{ y.year }}</td>
+          <td>${{ "{:,.0f}".format(y.value) }}</td>
+          <td>${{ "{:,.0f}".format(y.rent) }}</td>
+          <td class="proj-col-principal">${{ "{:,.0f}".format(y.principal) }}</td>
+          <td class="proj-col-interest">${{ "{:,.0f}".format(y.interest) }}</td>
+          <td class="proj-col-tax">${{ "{:,.0f}".format(y.tax) }}</td>
+          <td class="proj-col-expenses">${{ "{:,.0f}".format(y.expenses) }}</td>
+          <td class="{{ 'coc-positive' if y.cash_flow > 0 else 'coc-negative' }}">
+            ${{ "{:,.0f}".format(y.cash_flow) }}
+          </td>
+          <td class="{{ 'coc-positive' if y.coc > 0 else 'coc-negative' }}">
+            {{ "%.1f"|format(y.coc * 100) }}%
+          </td>
+          <td class="proj-col-annual-roi {{ 'coc-positive' if y.annual_roi > 0 else 'coc-negative' }}">
+            {{ "%.1f"|format(y.annual_roi * 100) }}%
+          </td>
+          <td class="{{ 'coc-positive' if y.sell_roi > 0 else 'coc-negative' }}">
+            {{ "%.1f"|format(y.sell_roi * 100) }}%
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}

@@ -110,11 +110,21 @@ DROP TABLE IF EXISTS rent_comps;
 CREATE TABLE rent_comps (
     city           TEXT,
     bedrooms       INTEGER NOT NULL,
-    baths          INTEGER NOT NULL,
+    baths          REAL NOT NULL,
     median_rent    REAL NOT NULL,
     sample_size    INTEGER NOT NULL,
     comp_ids_json  TEXT,
     PRIMARY KEY (city, bedrooms, baths)
+);
+
+CREATE TABLE IF NOT EXISTS external_rent_estimates (
+    postal_code  TEXT NOT NULL,
+    bedrooms     INTEGER NOT NULL,
+    baths        REAL NOT NULL,
+    rent_estimate REAL NOT NULL,
+    source       TEXT NOT NULL,
+    fetched_at   TEXT NOT NULL,
+    PRIMARY KEY (postal_code, bedrooms, baths, source)
 );
 """
 
@@ -517,7 +527,7 @@ def build_rent_comps(con):
     rentals = con.execute(
         """
         SELECT property_id, city, bedrooms,
-               CAST(ROUND(COALESCE(baths_total, baths_full, 1)) AS INTEGER) AS baths,
+               ROUND(COALESCE(baths_total, baths_full, 1) * 2) / 2.0 AS baths,
                list_price
         FROM properties
         WHERE status='for_rent' AND list_price IS NOT NULL AND list_price > 0

@@ -45,13 +45,18 @@ def _seed_db():
             is_pending INTEGER DEFAULT 0, is_contingent INTEGER DEFAULT 0
         );
         CREATE TABLE rent_comps (
-            city TEXT, bedrooms INTEGER, baths INTEGER,
+            city TEXT, bedrooms INTEGER, baths REAL,
             median_rent REAL, sample_size INTEGER,
             PRIMARY KEY (city, bedrooms, baths)
         );
+        CREATE TABLE external_rent_estimates (
+            postal_code TEXT NOT NULL, bedrooms INTEGER NOT NULL, baths REAL NOT NULL,
+            rent_estimate REAL NOT NULL, source TEXT NOT NULL, fetched_at TEXT NOT NULL,
+            PRIMARY KEY (postal_code, bedrooms, baths, source)
+        );
     """)
-    con.execute("INSERT INTO rent_comps VALUES ('Belleville', 2, 1, 2200, 3)")
-    con.execute("INSERT INTO rent_comps VALUES (NULL, 2, 1, 2100, 10)")
+    con.execute("INSERT INTO rent_comps VALUES ('Belleville', 2, 1.0, 2200, 3)")
+    con.execute("INSERT INTO rent_comps VALUES (NULL, 2, 1.0, 2100, 10)")
     con.execute(
         "INSERT INTO properties (property_id, status, list_price, property_type, city, "
         "bedrooms, baths_full, baths_total, num_units) "
@@ -71,10 +76,20 @@ def test_comp_rent_uses_city_specific_row():
     assert analyze.comp_rent(con, beds=2, baths=1.0, city="Belleville") == 2200
 
 
-def test_comp_rent_falls_back_to_null_city():
+def test_comp_rent_no_local_returns_none():
     con = _seed_db()
-    # Elsewhere has no local row for (beds=2, baths=1) → fallback row (2100)
-    assert analyze.comp_rent(con, beds=2, baths=1.0, city="Elsewhere") == 2100
+    # No city-specific row and no external_rent_estimates → None
+    assert analyze.comp_rent(con, beds=2, baths=1.0, city="Elsewhere") is None
+
+
+def test_comp_rent_falls_back_to_external():
+    con = _seed_db()
+    from datetime import datetime, timezone
+    con.execute(
+        "INSERT INTO external_rent_estimates VALUES ('07999', 2, 1.0, 1800.0, 'rentcast', ?)",
+        (datetime.now(timezone.utc).isoformat(),),
+    )
+    assert analyze.comp_rent(con, beds=2, baths=1.0, city="Elsewhere", postal_code="07999") == 1800.0
 
 
 def test_comp_rent_returns_none_when_no_bucket():

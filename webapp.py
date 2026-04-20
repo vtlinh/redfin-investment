@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote, urlencode
 
-from flask import Flask, abort, render_template, request
+from flask import Flask, abort, jsonify, render_template, request
 
 import analyze
 
@@ -272,7 +272,7 @@ HEADER_LABELS = [
     ("rent",       "Rent/mo"),
     ("cashflow",   "Cashflow"),
     ("coc",        "CoC"),
-    ("roi",        "ROI/yr"),
+    ("roi",        "IRR"),
 ]
 
 
@@ -313,9 +313,9 @@ def _unit_keys(p):
         beds_per_unit, baths_per_unit = [], []
     num_units = p.get("num_units") or 1
     if num_units > 1 and beds_per_unit and baths_per_unit and len(beds_per_unit) == num_units:
-        return [(b, int(round(ba)) if ba else 1) for b, ba in zip(beds_per_unit, baths_per_unit)]
-    baths_i = int(round(p["baths_total"])) if p["baths_total"] else 1
-    return [(p["bedrooms"] or 0, baths_i)]
+        return [(b, round((ba or 1.0) * 2) / 2.0) for b, ba in zip(beds_per_unit, baths_per_unit)]
+    baths_r = round((p["baths_total"] or 1.0) * 2) / 2.0
+    return [(p["bedrooms"] or 0, baths_r)]
 
 
 def _attach_rent_comps(con, properties):
@@ -457,6 +457,15 @@ def index():
     sort = parse_sort(request.args)
     con = get_conn()
     properties, total, pages, last_updated = fetch_page(con, page, filters, cfg, sort)
+    if request.args.get("partial") == "1":
+        html = render_template(
+            "_cards.html",
+            properties=properties,
+            page=page,
+            page_size=PAGE_SIZE,
+        )
+        con.close()
+        return jsonify(html=html, has_more=page < pages, total=total, page=page, pages=pages)
     property_types = [
         r[0] for r in con.execute(
             "SELECT DISTINCT property_type FROM properties "
