@@ -523,6 +523,7 @@ def build_rent_comps(con):
         WHERE status='for_rent' AND list_price IS NOT NULL AND list_price > 0
               AND list_price <= ?
               AND bedrooms IS NOT NULL AND is_active=1
+              AND city IS NOT NULL
         """,
         (MAX_COMP_RENT,),
     ).fetchall()
