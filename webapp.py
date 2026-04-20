@@ -201,6 +201,9 @@ def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg):
             "cash_flow":  cash,
             "coc":        cash / upfront_cash if upfront_cash else 0,
             "annual_roi": year_irr if year_irr is not None else 0,
+            "upfront_cash": upfront_cash,
+            "cum_cash":   cumulative_cash,
+            "net_sale":   net_sale,
             "sell_roi":   total_profit / upfront_cash if upfront_cash else 0,
         })
     return out

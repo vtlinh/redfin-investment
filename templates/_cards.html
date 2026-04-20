@@ -95,16 +95,36 @@
               onclick="toggleProjTooltip(this)">
             ${{ "{:,.0f}".format(y.tax + y.expenses) }}
           </td>
-          <td class="{{ 'coc-positive' if y.cash_flow > 0 else 'coc-negative' }}">
+          <td class="proj-breakdown {{ 'coc-positive' if y.cash_flow > 0 else 'coc-negative' }}"
+              data-breakdown='{{ {"Rent": y.rent|round|int, "Mortgage": (y.principal+y.interest)|round|int, "Expenses": (y.tax+y.expenses)|round|int}|tojson }}'
+              data-nototal="1"
+              onmouseenter="showProjTooltip(this)"
+              onmouseleave="scheduleProjHide()"
+              onclick="toggleProjTooltip(this)">
             ${{ "{:,.0f}".format(y.cash_flow) }}
           </td>
-          <td class="{{ 'coc-positive' if y.coc > 0 else 'coc-negative' }}">
+          <td class="proj-breakdown {{ 'coc-positive' if y.coc > 0 else 'coc-negative' }}"
+              data-breakdown='{{ {"Cash flow": y.cash_flow|round|int, "Upfront cash": y.upfront_cash|round|int}|tojson }}'
+              data-nototal="1"
+              onmouseenter="showProjTooltip(this)"
+              onmouseleave="scheduleProjHide()"
+              onclick="toggleProjTooltip(this)">
             {{ "%.1f"|format(y.coc * 100) }}%
           </td>
-          <td class="proj-col-annual-roi {{ 'coc-positive' if y.annual_roi > 0 else 'coc-negative' }}">
+          <td class="proj-breakdown proj-col-annual-roi {{ 'coc-positive' if y.annual_roi > 0 else 'coc-negative' }}"
+              data-breakdown='{{ {"Cum. cash": y.cum_cash|round|int, "Net sale": y.net_sale|round|int, "Upfront": y.upfront_cash|round|int}|tojson }}'
+              data-nototal="1"
+              onmouseenter="showProjTooltip(this)"
+              onmouseleave="scheduleProjHide()"
+              onclick="toggleProjTooltip(this)">
             {{ "%.1f"|format(y.annual_roi * 100) }}%
           </td>
-          <td class="{{ 'coc-positive' if y.sell_roi > 0 else 'coc-negative' }}">
+          <td class="proj-breakdown {{ 'coc-positive' if y.sell_roi > 0 else 'coc-negative' }}"
+              data-breakdown='{{ {"Cum. cash": y.cum_cash|round|int, "Net sale": y.net_sale|round|int, "Upfront": y.upfront_cash|round|int}|tojson }}'
+              data-nototal="1"
+              onmouseenter="showProjTooltip(this)"
+              onmouseleave="scheduleProjHide()"
+              onclick="toggleProjTooltip(this)">
             {{ "%.1f"|format(y.sell_roi * 100) }}%
           </td>
         </tr>

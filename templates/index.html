@@ -589,7 +589,7 @@
       if (!entries.length) return;
       const frag = document.createDocumentFragment();
       entries.forEach(([label, val]) => frag.appendChild(_ptRow(label, val, false)));
-      if (entries.length > 1) {
+      if (entries.length > 1 && !el.dataset.nototal) {
         const sep = document.createElement("div");
         sep.style.cssText = "border-top:1px solid #eee;margin:0.2rem 0";
         frag.appendChild(sep);
