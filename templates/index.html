@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Investment properties — top cash-on-cash</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           max-width: 1100px; margin: 2rem auto; padding: 0 1rem; line-height: 1.4; }
+    h1 { margin-bottom: 0.25rem; }
+    .meta { color: #666; margin-bottom: 1.5rem; }
+    .card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 0.75rem;
+            overflow: hidden; background: canvas; }
+    .row { display: flex; align-items: center; padding: 0.9rem 1rem; gap: 1rem; }
+    .row:hover { background: rgba(0,0,0,0.03); }
+    .rank { font-size: 0.9rem; color: #888; min-width: 2rem; font-variant-numeric: tabular-nums; }
+    .info { flex: 1; min-width: 0; }
+    .info a { color: inherit; text-decoration: none; }
+    .info a:hover .addr { text-decoration: underline; }
+    .addr { font-weight: 600; }
+    .sub { font-size: 0.85rem; color: #666; margin-top: 0.1rem; }
+    .stats { display: grid;
+             grid-template-columns: 4.5rem 3.5rem 4.5rem 3rem 3rem;
+             gap: 0 1rem; font-size: 0.9rem; text-align: right; }
+    .stat .val { font-variant-numeric: tabular-nums; font-weight: 600;
+                 align-self: center; }
+    .list-header { display: flex; align-items: center; gap: 1rem;
+                   padding: 0.5rem 1rem; margin-bottom: 0.4rem;
+                   font-size: 0.7rem; text-transform: uppercase;
+                   letter-spacing: 0.04em; color: #888; }
+    .list-header .rank { visibility: hidden; }
+    .list-header .info .col { cursor: pointer; color: inherit;
+                              text-decoration: none; font-weight: 600; }
+    .list-header .stats a { color: inherit; text-decoration: none;
+                            font-weight: 600; text-align: right; }
+    .list-header a:hover, .list-header .col:hover { color: inherit; filter: brightness(1.3); }
+    .list-header .active { color: #2563eb; }
+    .list-header .arrow { margin-left: 0.15rem; }
+    .list-header .chev-spacer { width: 2.1rem; flex-shrink: 0; }
+    .chevron { width: 2.1rem; }
+    .stat .sub-val { font-size: 0.75rem; color: #888; font-variant-numeric: tabular-nums; }
+    .coc-positive { color: #0a7c3a; }
+    .coc-negative { color: #b4261a; }
+    .chevron { background: none; border: none; cursor: pointer; font-size: 1.1rem;
+               padding: 0.25rem 0.5rem; color: #888; transition: transform 0.15s; }
+    .chevron[aria-expanded="true"] { transform: rotate(180deg); }
+    .projection { display: none; padding: 0 1rem 1rem; }
+    .projection[data-open="1"] { display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem;
+            font-variant-numeric: tabular-nums; }
+    th, td { padding: 0.35rem 0.5rem; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    thead th { border-bottom: 1px solid #ccc; font-weight: 600; color: #555; }
+    tbody tr:nth-child(even) { background: rgba(0,0,0,0.02); }
+    .pager { display: flex; justify-content: space-between; align-items: center;
+             margin-top: 1.5rem; }
+    .pager a { color: inherit; padding: 0.4rem 0.8rem; border: 1px solid #ccc;
+               border-radius: 4px; text-decoration: none; }
+    .pager a[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
+    .pager .count { color: #666; font-size: 0.9rem; }
+    .filters { border: 1px solid #ddd; border-radius: 8px; padding: 1rem;
+               margin-bottom: 1.5rem; background: canvas; }
+    .filter-row { display: flex; gap: 16px; flex-wrap: wrap;
+                  align-items: flex-end; }
+    .filters > .filter-row { flex-wrap: nowrap; }
+    .filter-row + .filter-row { margin-top: 0.85rem; }
+    .filter-expanded { display: none; }
+    .filter-expanded[data-open="1"] { display: block; }
+    .filter label.field-label { display: block; font-size: 0.7rem; color: #888;
+             text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.25rem; }
+    .filter input[type="number"], .filter input[type="text"] {
+             padding: 0.35rem 0.5rem; border: 1px solid #ccc;
+             border-radius: 4px; font: inherit; box-sizing: border-box;
+             background: canvas; color: inherit; }
+    .filter .range { display: flex; gap: 0.4rem; }
+    .filter .range input { width: 5.5rem; }
+    .filter input[type="text"] { width: 18rem; max-width: 100%; }
+    .ptype-dropdown { position: relative; }
+    .ptype-toggle { display: inline-flex; align-items: center; gap: 0.4rem;
+                    padding: 0.35rem 0.6rem; border: 1px solid #ccc;
+                    border-radius: 4px; background: canvas; color: inherit;
+                    font: inherit; cursor: pointer; height: 2rem; }
+    .ptype-toggle .caret { color: #888; font-size: 0.7rem; }
+    .ptype-menu { position: absolute; top: calc(100% + 4px); left: 0;
+                  background: canvas; border: 1px solid #ccc; border-radius: 4px;
+                  padding: 0.5rem 0.75rem; display: none; z-index: 10;
+                  min-width: 180px; max-height: 300px; overflow-y: auto;
+                  box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .ptype-menu[data-open="1"] { display: block; }
+    .ptype-menu label { display: flex; gap: 0.4rem; align-items: center;
+                        padding: 0.2rem 0; cursor: pointer; font-size: 0.85rem; }
+    .expand-toggle { background: none; border: 1px solid #ccc; border-radius: 4px;
+                     cursor: pointer; padding: 0 0.5rem; font-size: 0.9rem;
+                     color: #888; height: 2rem;
+                     transition: transform 0.15s; }
+    .match-count { color: #666; font-size: 0.9rem; margin-left: auto; }
+    .expand-toggle[aria-expanded="true"] { transform: rotate(180deg); }
+    .filter-actions { display: flex; gap: 0.75rem; align-items: center;
+                      margin-top: 0.85rem; }
+    .filters:has(.filter-expanded[data-open="1"]) .top-apply { display: none; }
+    .filter-expanded > .filter-row:first-child { margin-top: 0.5rem; }
+    .settings { border: 1px solid #ddd; border-radius: 8px; padding: 1rem;
+                margin-bottom: 1.5rem; background: canvas; }
+    .settings-header { display: flex; align-items: center; gap: 0.5rem;
+                       cursor: pointer; user-select: none; }
+    .settings-header h3 { margin: 0; font-size: 0.9rem; text-transform: uppercase;
+                          letter-spacing: 0.04em; color: #888; font-weight: 600; }
+    .settings-header .caret { color: #888; font-size: 0.8rem; transition: transform 0.15s; }
+    .settings-header[aria-expanded="true"] .caret { transform: rotate(180deg); }
+    .settings-body { display: none; margin-top: 1rem; }
+    .settings-body[data-open="1"] { display: block; }
+    .settings-grid { display: grid;
+                     grid-template-columns: repeat(4, minmax(0, 1fr));
+                     gap: 32px 16px; }
+    .settings-grid .field-cell { display: flex; gap: 16px;
+                                 grid-column: span 1; }
+    .settings-grid .field-cell.pair { grid-column: span 2; }
+    .settings-grid .field { display: flex; flex-direction: column;
+                            gap: 0.25rem; flex: 1; min-width: 0; }
+    .settings-grid .field label { font-size: 0.7rem; color: #888;
+                                  text-transform: uppercase; letter-spacing: 0.04em; }
+    .settings-grid .input-row { display: flex; align-items: stretch;
+                                border: 1px solid #ccc; border-radius: 4px;
+                                background: canvas; height: 2rem;
+                                width: 8.5rem; }
+    .settings-grid .input-row input {
+                                flex: 1; min-width: 0; border: none;
+                                padding: 0 0.5rem; background: transparent;
+                                color: inherit; font: inherit; text-align: right;
+                                -moz-appearance: textfield; }
+    .settings-grid .input-row input::-webkit-inner-spin-button,
+    .settings-grid .input-row input::-webkit-outer-spin-button {
+                                -webkit-appearance: none; margin: 0; }
+    .settings-grid .input-row .suffix {
+                                color: #888; font-size: 0.8rem;
+                                padding: 0 0.5rem; align-self: center;
+                                border-left: 1px solid #eee; line-height: 2rem; }
+    .settings-actions { display: flex; gap: 0.75rem; align-items: center;
+                        margin-top: 1rem; }
+    .stepper-row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .stepper { display: inline-flex; align-items: stretch;
+               border: 1px solid #ccc; border-radius: 4px;
+               padding: 0 0.3rem 0 0.5rem; background: canvas;
+               box-sizing: border-box; height: 2rem; }
+    .filter .stepper input[type="number"] {
+               border: none; padding: 0; width: 1.5rem;
+               text-align: right; background: transparent;
+               caret-color: transparent; cursor: default;
+               -moz-appearance: textfield; }
+    .filter .stepper input[type="number"]::-webkit-inner-spin-button,
+    .filter .stepper input[type="number"]::-webkit-outer-spin-button {
+               -webkit-appearance: none; margin: 0; }
+    .stepper .plus { color: #888; font-weight: 600; align-self: center; }
+    .chevrons { display: flex; flex-direction: column; margin-left: 0.3rem;
+                justify-content: center; gap: 1px; }
+    .chevrons button { background: none; border: none; cursor: pointer;
+                       padding: 0 2px; font-size: 0.55rem; color: #888;
+                       line-height: 1; }
+    .chevrons button:hover { color: inherit; }
+    .ptypes { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem;
+              font-size: 0.85rem; }
+    .ptypes label { display: inline-flex; gap: 0.25rem; align-items: center;
+                    cursor: pointer; }
+    .filter.wide { grid-column: 1 / -1; }
+    .filters button[type="submit"] { padding: 0 1.25rem; border-radius: 4px;
+             border: none; background: #2563eb; color: #fff; cursor: pointer;
+             font: inherit; font-weight: 600; height: 2rem;
+             align-self: flex-end; }
+    .filters button[type="submit"]:hover { background: #1d4ed8; }
+    .reset-link { color: #666; font-size: 0.9rem; text-decoration: none; }
+    .reset-link:hover { text-decoration: underline; }
+    .match-count { align-self: center; line-height: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>Investment properties</h1>
+  <p class="meta">Database updated on {{ last_updated or "—" }}</p>
+
+  {% set has_expanded_filter = filters.min_price or filters.max_price
+       or filters.min_sqft or filters.max_sqft or filters.q %}
+  <form class="filters" method="get">
+    <div class="filter-row">
+      <div class="filter ptype-dropdown">
+        <label class="field-label">Property type</label>
+        <button type="button" class="ptype-toggle" onclick="togglePtypeDropdown(event)">
+          <span class="ptype-label">
+            {% if filters.property_types %}{{ filters.property_types | length }} selected{% else %}Any type{% endif %}
+          </span>
+          <span class="caret">&#x25BC;</span>
+        </button>
+        <div class="ptype-menu">
+          {% for t in property_types %}
+          <label><input type="checkbox" name="property_type" value="{{ t }}"
+            {% if t in filters.property_types %}checked{% endif %}>
+            {{ t.replace("_", " ") }}</label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="filter">
+        <div class="stepper-row">
+          {% for fname, label in [('min_units','Units'), ('min_bedrooms','Bedrooms'), ('min_baths','Bathrooms')] %}
+          <div>
+            <label class="field-label">{{ label }}</label>
+            <div class="stepper">
+              <input type="number" name="{{ fname }}" min="1" step="1"
+                value="{{ filters[fname] or 1 }}" readonly
+                onkeydown="event.preventDefault()" onpaste="event.preventDefault()">
+              <span class="plus">+</span>
+              <div class="chevrons">
+                <button type="button" tabindex="-1" aria-label="Increase"
+                        onclick="stepInput(this, 1)">&#x25B2;</button>
+                <button type="button" tabindex="-1" aria-label="Decrease"
+                        onclick="stepInput(this, -1)">&#x25BC;</button>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <button type="submit" class="top-apply">Apply</button>
+      <span class="match-count">
+        {{ total }} match{{ "es" if total != 1 else "" }}
+      </span>
+      <button type="button" class="expand-toggle" id="expand-toggle"
+              aria-expanded="{{ 'true' if has_expanded_filter else 'false' }}"
+              aria-controls="filter-expanded"
+              onclick="toggleExpand()">&#x25BC;</button>
+    </div>
+
+    <div class="filter-expanded" id="filter-expanded"
+         data-open="{{ '1' if has_expanded_filter else '0' }}">
+      <div class="filter-row">
+        <div class="filter">
+          <label class="field-label">Price ($)</label>
+          <div class="range">
+            <input type="number" name="min_price" min="0" placeholder="min"
+              value="{{ filters.min_price or '' }}">
+            <input type="number" name="max_price" min="0" placeholder="max"
+              value="{{ filters.max_price or '' }}">
+          </div>
+        </div>
+        <div class="filter">
+          <label class="field-label">Sqft</label>
+          <div class="range">
+            <input type="number" name="min_sqft" min="0" placeholder="min"
+              value="{{ filters.min_sqft or '' }}">
+            <input type="number" name="max_sqft" min="0" placeholder="max"
+              value="{{ filters.max_sqft or '' }}">
+          </div>
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="filter">
+          <label class="field-label">Search</label>
+          <input type="text" name="q" placeholder="address, city, ZIP, agent…"
+            value="{{ filters.q or '' }}">
+        </div>
+      </div>
+      <div class="filter-actions">
+        <button type="submit">Apply</button>
+        <a href="/" class="reset-link">Reset</a>
+      </div>
+    </div>
+
+  </form>
+
+  <div class="settings">
+    <div class="settings-header" id="settings-header" aria-expanded="false"
+         onclick="toggleSettings()">
+      <h3>Calculation settings</h3>
+      <span class="caret">&#x25BC;</span>
+    </div>
+    <form class="settings-body" id="settings-body" data-open="0"
+          onsubmit="return submitSettings(event)">
+      <div class="settings-grid">
+        {% for group in config_groups %}
+        <div class="field-cell {% if group|length > 1 %}pair{% endif %}">
+          {% for key, label, suffix, step in group %}
+          <div class="field">
+            <label for="cfg-{{ key }}">{{ label }}</label>
+            <div class="input-row">
+              <input type="number" id="cfg-{{ key }}" name="{{ key }}"
+                     step="{{ step }}" min="0"
+                     data-default="{{ config_defaults[key] }}"
+                     value="{{ config_defaults[key] }}">
+              <span class="suffix">{{ suffix }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="settings-actions">
+        <button type="submit">Apply &amp; recompute</button>
+        <a href="#" class="reset-link" onclick="resetSettings(event)">Reset to defaults</a>
+        <span class="match-count" id="settings-status"></span>
+      </div>
+    </form>
+  </div>
+
+  <div class="list-header">
+    <div class="rank">#</div>
+    <div class="info">
+      <a class="col {{ 'active' if headers[0].active else '' }}" href="{{ headers[0].href }}">
+        {{ headers[0].label }}<span class="arrow">{{ headers[0].arrow }}</span>
+      </a>
+    </div>
+    <div class="stats">
+      {% for h in headers[1:] %}
+      <a class="{{ 'active' if h.active else '' }}" href="{{ h.href }}">
+        {{ h.label }}<span class="arrow">{{ h.arrow }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    <div class="chev-spacer"></div>
+  </div>
+
+  {% for p in properties %}
+  {% set rank = (page - 1) * page_size + loop.index %}
+  <div class="card">
+    <div class="row">
+      <div class="rank">#{{ rank }}</div>
+      <div class="info">
+        <a href="{{ p.url }}" target="_blank" rel="noopener">
+          <div class="addr">{{ p.address_line or "(address unavailable)" }}</div>
+          <div class="sub">
+            {{ p.city }}, {{ p.state }} {{ p.postal_code }} ·
+            {{ p.property_type.replace("_", " ") if p.property_type else "?" }}
+            {%- if p.bedrooms %} · {{ p.bedrooms }}bd{% endif %}
+            {%- if p.baths_total %}/{{ p.baths_total }}ba{% endif %}
+            {%- if p.area_sqft %} · {{ "{:,}".format(p.area_sqft) }} sqft{% endif %}
+            {%- if p.year_built %} · built {{ p.year_built }}{% endif %}
+          </div>
+          {% if p.num_units and p.num_units > 1 %}
+          <div class="sub">
+            {{ p.num_units }} units
+            {%- if p.unit_breakdown %} · {{ p.unit_breakdown | join(", ") }}{% endif %}
+          </div>
+          {% endif %}
+        </a>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="val">${{ "{:,.0f}".format(p.list_price) }}</div>
+        </div>
+        <div class="stat">
+          <div class="val">${{ "{:,.0f}".format(p.annual_income / 12) }}</div>
+        </div>
+        <div class="stat">
+          <div class="val {{ 'coc-positive' if p.cash_flow > 0 else 'coc-negative' }}">
+            ${{ "{:,.0f}".format(p.cash_flow) }}
+          </div>
+        </div>
+        <div class="stat">
+          <div class="val {{ 'coc-positive' if p.cash_on_cash_return > 0 else 'coc-negative' }}">
+            {{ "%.1f"|format(p.cash_on_cash_return * 100) }}%
+          </div>
+        </div>
+        <div class="stat">
+          <div class="val {{ 'coc-positive' if p.total_roi and p.total_roi > 0 else 'coc-negative' }}">
+            {% if p.total_roi is not none %}{{ "%.0f"|format(p.total_roi * 100) }}%{% else %}—{% endif %}
+          </div>
+        </div>
+      </div>
+      <button class="chevron" type="button"
+              aria-expanded="false"
+              aria-controls="proj-{{ p.property_id }}"
+              onclick="toggle(this)">&#x25BC;</button>
+    </div>
+    <div class="projection" id="proj-{{ p.property_id }}">
+      <table>
+        <thead>
+          <tr>
+            <th>Year</th>
+            <th>Property value</th>
+            <th>Rent</th>
+            <th>Principal</th>
+            <th>Interest</th>
+            <th>Tax</th>
+            <th>Expenses</th>
+            <th>Cash flow</th>
+            <th>CoC</th>
+            <th>Annual ROI</th>
+            <th>Sell ROI (8% cost)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for y in p.projection %}
+          <tr>
+            <td>{{ y.year }}</td>
+            <td>${{ "{:,.0f}".format(y.value) }}</td>
+            <td>${{ "{:,.0f}".format(y.rent) }}</td>
+            <td>${{ "{:,.0f}".format(y.principal) }}</td>
+            <td>${{ "{:,.0f}".format(y.interest) }}</td>
+            <td>${{ "{:,.0f}".format(y.tax) }}</td>
+            <td>${{ "{:,.0f}".format(y.expenses) }}</td>
+            <td class="{{ 'coc-positive' if y.cash_flow > 0 else 'coc-negative' }}">
+              ${{ "{:,.0f}".format(y.cash_flow) }}
+            </td>
+            <td class="{{ 'coc-positive' if y.coc > 0 else 'coc-negative' }}">
+              {{ "%.1f"|format(y.coc * 100) }}%
+            </td>
+            <td class="{{ 'coc-positive' if y.annual_roi > 0 else 'coc-negative' }}">
+              {{ "%.1f"|format(y.annual_roi * 100) }}%
+            </td>
+            <td class="{{ 'coc-positive' if y.sell_roi > 0 else 'coc-negative' }}">
+              {{ "%.1f"|format(y.sell_roi * 100) }}%
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% set fqs = ('&' + filter_qs) if filter_qs else '' %}
+  {% set sqs = '&' + sort_qs %}
+  <div class="pager">
+    <a href="?page={{ page - 1 }}{{ fqs }}{{ sqs }}" aria-disabled="{{ 'true' if page <= 1 else 'false' }}">&larr; Prev</a>
+    <span class="count">
+      {% if total %}Showing {{ (page - 1) * page_size + 1 }}–{{ (page - 1) * page_size + properties|length }} of {{ total }}{% else %}No matches{% endif %}
+    </span>
+    <a href="?page={{ page + 1 }}{{ fqs }}{{ sqs }}" aria-disabled="{{ 'true' if page >= pages else 'false' }}">Next &rarr;</a>
+  </div>
+
+  <script>
+    function toggle(btn) {
+      const panel = document.getElementById(btn.getAttribute("aria-controls"));
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", open ? "false" : "true");
+      panel.dataset.open = open ? "0" : "1";
+    }
+    function stepInput(btn, delta) {
+      const input = btn.closest(".stepper").querySelector("input");
+      const v = parseInt(input.value || "1", 10);
+      const min = parseInt(input.min || "1", 10);
+      input.value = Math.max(min, v + delta);
+    }
+    function togglePtypeDropdown(e) {
+      e.stopPropagation();
+      const menu = document.querySelector(".ptype-menu");
+      menu.dataset.open = menu.dataset.open === "1" ? "0" : "1";
+    }
+    document.addEventListener("click", e => {
+      const dd = document.querySelector(".ptype-dropdown");
+      if (dd && !dd.contains(e.target)) {
+        document.querySelector(".ptype-menu").dataset.open = "0";
+      }
+    });
+    // Update the "N selected" / "Any type" label as boxes are checked.
+    document.querySelectorAll(".ptype-menu input[type=checkbox]").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const n = document.querySelectorAll(".ptype-menu input:checked").length;
+        document.querySelector(".ptype-label").textContent =
+          n ? `${n} selected` : "Any type";
+      });
+    });
+    function toggleExpand() {
+      const btn = document.getElementById("expand-toggle");
+      const panel = document.getElementById("filter-expanded");
+      const open = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", open ? "false" : "true");
+      panel.dataset.open = open ? "0" : "1";
+      try { localStorage.setItem("filterExpanded", open ? "0" : "1"); } catch {}
+    }
+    // Restore expanded state from localStorage if no expanded-only filter is set.
+    try {
+      const panel = document.getElementById("filter-expanded");
+      const btn = document.getElementById("expand-toggle");
+      if (panel.dataset.open !== "1") {
+        const saved = localStorage.getItem("filterExpanded");
+        if (saved === "1") {
+          panel.dataset.open = "1";
+          btn.setAttribute("aria-expanded", "true");
+        }
+      }
+    } catch {}
+
+    // ---- Calculation settings -------------------------------------------
+    const COOKIE_NAME = "calc_config";
+    function readCookie(name) {
+      const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+      return m ? decodeURIComponent(m[1]) : "";
+    }
+    function writeCookie(name, value) {
+      document.cookie = name + "=" + encodeURIComponent(value) +
+                        "; path=/; max-age=31536000; SameSite=Lax";
+    }
+    function clearCookie(name) {
+      document.cookie = name + "=; path=/; max-age=0; SameSite=Lax";
+    }
+    function loadSavedSettings() {
+      let saved = {};
+      try { saved = JSON.parse(readCookie(COOKIE_NAME) || "{}"); } catch {}
+      document.querySelectorAll(".settings-grid input").forEach(inp => {
+        if (saved[inp.name] !== undefined) inp.value = saved[inp.name];
+      });
+    }
+    loadSavedSettings();
+    function toggleSettings() {
+      const head = document.getElementById("settings-header");
+      const body = document.getElementById("settings-body");
+      const open = head.getAttribute("aria-expanded") === "true";
+      head.setAttribute("aria-expanded", open ? "false" : "true");
+      body.dataset.open = open ? "0" : "1";
+      try { localStorage.setItem("settingsOpen", open ? "0" : "1"); } catch {}
+    }
+    try {
+      if (localStorage.getItem("settingsOpen") === "1") {
+        document.getElementById("settings-header").setAttribute("aria-expanded", "true");
+        document.getElementById("settings-body").dataset.open = "1";
+      }
+    } catch {}
+    function gatherSettings() {
+      const out = {};
+      document.querySelectorAll(".settings-grid input").forEach(inp => {
+        out[inp.name] = inp.value;
+      });
+      return out;
+    }
+    async function submitSettings(e) {
+      e.preventDefault();
+      const status = document.getElementById("settings-status");
+      const cfg = gatherSettings();
+      writeCookie(COOKIE_NAME, JSON.stringify(cfg));
+      status.textContent = "Recomputing…";
+      try {
+        const r = await fetch("/recompute", { method: "POST" });
+        if (!r.ok) throw new Error("recompute failed: " + r.status);
+        status.textContent = "Done. Reloading…";
+        window.location.reload();
+      } catch (err) {
+        status.textContent = "Error: " + err.message;
+      }
+      return false;
+    }
+    async function resetSettings(e) {
+      e.preventDefault();
+      clearCookie(COOKIE_NAME);
+      document.querySelectorAll(".settings-grid input").forEach(inp => {
+        inp.value = inp.dataset.default;
+      });
+      const status = document.getElementById("settings-status");
+      status.textContent = "Recomputing…";
+      try {
+        const r = await fetch("/recompute", { method: "POST" });
+        if (!r.ok) throw new Error("recompute failed: " + r.status);
+        window.location.reload();
+      } catch (err) {
+        status.textContent = "Error: " + err.message;
+      }
+    }
+  </script>
+</body>
+</html>

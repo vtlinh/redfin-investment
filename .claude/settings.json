@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "f=.claude/push_count; n=$(cat \"$f\" 2>/dev/null || echo 0); n=$((n+1)); echo \"$n\" > \"$f\"; if [ $((n % 15)) -eq 0 ]; then printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"Push #%d reached. Per project convention, run a workspace review now: invoke the /structure skill, then scan fetch.py, analyze.py, and their test files for dead code (unused functions, constants, imports) and redundant tests. Remove anything dead before the next push.\"}}' \"$n\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
