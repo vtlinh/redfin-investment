@@ -231,6 +231,12 @@ def _dedup_listings(rows):
 def analyze(conn, cfg=None):
     """Return a list of cash-flow dicts for every for-sale property with comps."""
     cfg = {**DEFAULTS, **(cfg or {})}
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS external_rent_estimates (
+            postal_code TEXT NOT NULL, bedrooms INTEGER NOT NULL, baths REAL NOT NULL,
+            rent_estimate REAL NOT NULL, source TEXT NOT NULL, fetched_at TEXT NOT NULL,
+            PRIMARY KEY (postal_code, bedrooms, baths, source))"""
+    )
     cols = {r[1] for r in conn.execute("PRAGMA table_info(properties)")}
     extras = [c for c in ("num_units", "beds_per_unit_json", "baths_per_unit_json") if c in cols]
     extras_sql = (", " + ", ".join(extras)) if extras else ""
