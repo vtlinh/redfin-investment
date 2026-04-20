@@ -46,7 +46,7 @@ DEFAULTS = {
 PROPERTY_TAX_RATE = 0.025  # Essex/Bergen NJ avg
 
 # Listings below this list price are excluded (likely land, teaser auctions, or data errors).
-MIN_LIST_PRICE     = 200_000
+MIN_LIST_PRICE     = 100_000
 
 # Realtor.com `property_type` values we treat as multi-family
 MULTI_FAMILY_TYPES = {"multi_family", "duplex_triplex_quadplex"}

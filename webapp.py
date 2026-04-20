@@ -301,20 +301,35 @@ def build_headers(sort, filter_qs):
     return out
 
 
-def _attach_rent_comps(con, properties):
-    """For each property in the list, look up its nearest-to-median rental
-    comps from rent_comps.comp_ids_json and attach them as p['rent_comps']
-    — a list of {address_line, list_price, url} dicts sorted descending by price.
+def _unit_keys(p):
+    """Return the (beds, baths_i) bucket keys used to compute rent for this property.
+    Multi-family properties with per-unit data use each unit's beds/baths;
+    single-family properties use the property-level totals.
     """
-    # Build unique (city, beds, baths) buckets for this page
+    try:
+        beds_per_unit = json.loads(p.get("beds_per_unit_json") or "[]")
+        baths_per_unit = json.loads(p.get("baths_per_unit_json") or "[]")
+    except (ValueError, TypeError):
+        beds_per_unit, baths_per_unit = [], []
+    num_units = p.get("num_units") or 1
+    if num_units > 1 and beds_per_unit and baths_per_unit and len(beds_per_unit) == num_units:
+        return [(b, int(round(ba)) if ba else 1) for b, ba in zip(beds_per_unit, baths_per_unit)]
+    baths_i = int(round(p["baths_total"])) if p["baths_total"] else 1
+    return [(p["bedrooms"] or 0, baths_i)]
+
+
+def _attach_rent_comps(con, properties):
+    """For each property look up nearest-to-median rental comps from
+    rent_comps.comp_ids_json. Multi-family: collects comps across all unit
+    buckets (deduped, sorted descending by price).
+    """
+    # Collect all (city, beds, baths) buckets needed across this page
     buckets = {}
     for p in properties:
-        baths_i = int(round(p["baths_total"])) if p["baths_total"] else 1
-        key = (p["city"], p["bedrooms"] or 0, baths_i)
-        buckets[key] = None  # placeholder
+        for beds, baths_i in _unit_keys(p):
+            key = (p["city"], beds, baths_i)
+            buckets[key] = None
 
-    # Fetch comp_ids_json for each bucket (city-specific, then fallback).
-    # If the column doesn't exist yet (old DB), silently skip.
     try:
         for key in list(buckets.keys()):
             city, beds, baths = key
@@ -324,19 +339,12 @@ def _attach_rent_comps(con, properties):
             ).fetchone()
             if row and row[0]:
                 buckets[key] = json.loads(row[0])
-                continue
-            row = con.execute(
-                "SELECT comp_ids_json FROM rent_comps WHERE city IS NULL AND bedrooms=? AND baths=?",
-                (beds, baths),
-            ).fetchone()
-            if row and row[0]:
-                buckets[key] = json.loads(row[0])
     except Exception:
         for p in properties:
             p["rent_comps"] = []
         return
 
-    # Fetch details for all referenced comp IDs in one query
+    # Fetch details for all referenced IDs in one query
     all_ids = {pid for ids in buckets.values() if ids for pid in ids}
     if all_ids:
         ph = ",".join("?" * len(all_ids))
@@ -349,14 +357,16 @@ def _attach_rent_comps(con, properties):
         detail = {}
 
     for p in properties:
-        baths_i = int(round(p["baths_total"])) if p["baths_total"] else 1
-        ids = buckets.get((p["city"], p["bedrooms"] or 0, baths_i)) or []
-        # Filter to same city — prevents cross-city matches from the NULL fallback bucket
-        comps = sorted(
-            (detail[pid] for pid in ids if pid in detail and detail[pid]["city"] == p["city"]),
-            key=lambda x: x["list_price"] or 0,
-            reverse=True,
-        )
+        seen = set()
+        comps = []
+        for beds, baths_i in _unit_keys(p):
+            key = (p["city"], beds, baths_i)
+            for pid in (buckets.get(key) or []):
+                d = detail.get(pid)
+                if d and d["city"] == p["city"] and pid not in seen:
+                    seen.add(pid)
+                    comps.append(d)
+        comps.sort(key=lambda x: x["list_price"] or 0, reverse=True)
         p["rent_comps"] = comps
 
 
@@ -372,7 +382,8 @@ def fetch_page(con, page, filters, cfg, sort):
         total = con.execute(
             f"""SELECT COUNT(*) FROM properties p
                 LEFT JOIN cashflow_analysis c USING(property_id)
-                WHERE {where} AND p.status='for_sale' AND c.property_id IS NULL""",
+                WHERE {where} AND p.status='for_sale'
+                  AND p.list_price >= {analyze.MIN_LIST_PRICE} AND c.property_id IS NULL""",
             params,
         ).fetchone()[0]
         rows = con.execute(
@@ -382,7 +393,8 @@ def fetch_page(con, page, filters, cfg, sort):
                        p.beds_per_unit_json, p.baths_per_unit_json
                 FROM properties p
                 LEFT JOIN cashflow_analysis c USING(property_id)
-                WHERE {where} AND p.status='for_sale' AND c.property_id IS NULL
+                WHERE {where} AND p.status='for_sale'
+                  AND p.list_price >= {analyze.MIN_LIST_PRICE} AND c.property_id IS NULL
                 ORDER BY p.list_price ASC, p.property_id ASC
                 LIMIT ? OFFSET ?""",
             params + [PAGE_SIZE, offset],
@@ -453,11 +465,11 @@ def index():
         ).fetchall()
     ]
     no_rent_count = con.execute(
-        """SELECT COUNT(*) FROM properties p
+        f"""SELECT COUNT(*) FROM properties p
            LEFT JOIN cashflow_analysis c USING(property_id)
            WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
              AND p.status='for_sale'
-             AND p.list_price IS NOT NULL AND p.list_price >= 200000
+             AND p.list_price IS NOT NULL AND p.list_price >= {analyze.MIN_LIST_PRICE}
              AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
              AND c.property_id IS NULL"""
     ).fetchone()[0]
