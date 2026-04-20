@@ -11,10 +11,11 @@ update assumptions.
 """
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "properties.db"
+DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "properties.db"))
 
 # Configurable assumptions. The webapp exposes these via a settings panel and
 # can re-run analyze() with an overridden dict. Anything not in this dict

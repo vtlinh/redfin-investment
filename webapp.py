@@ -6,6 +6,7 @@ mortgage P&I fixed).
 """
 
 import json
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +16,8 @@ from flask import Flask, abort, render_template, request
 
 import analyze
 
-DB_PATH = Path(__file__).parent / "properties.db"
+# Render mounts its persistent disk at /data; local dev uses the repo copy.
+DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "properties.db"))
 
 # Fixed project-wide tax rate (not exposed in the UI).
 PROPERTY_TAX_RATE = analyze.PROPERTY_TAX_RATE

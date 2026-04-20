@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mai-investment
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: uv run --no-dev gunicorn webapp:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DB_PATH
+        value: /data/properties.db
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: "3.13"

@@ -34,7 +34,7 @@ load_dotenv()
 API_URL = "https://realty-in-us.p.rapidapi.com/properties/v3/list"
 DETAIL_URL = "https://realty-in-us.p.rapidapi.com/properties/v3/detail"
 API_HOST = "realty-in-us.p.rapidapi.com"
-DB_PATH = Path(__file__).parent / "properties.db"
+DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "properties.db"))
 PAGE_SIZE = 200
 
 COUNTIES = [
