@@ -67,10 +67,8 @@
           <th>Year</th>
           <th>Value</th>
           <th>Rent</th>
-          <th class="proj-col-principal">Principal</th>
-          <th class="proj-col-interest">Interest</th>
-          <th class="proj-col-tax">Tax</th>
-          <th class="proj-col-expenses">Expenses</th>
+          <th>Mortgage</th>
+          <th>Expenses</th>
           <th>Cash flow</th>
           <th>CoC</th>
           <th class="proj-col-annual-roi">Ann. IRR</th>
@@ -83,10 +81,20 @@
           <td>{{ y.year }}</td>
           <td>${{ "{:,.0f}".format(y.value) }}</td>
           <td>${{ "{:,.0f}".format(y.rent) }}</td>
-          <td class="proj-col-principal">${{ "{:,.0f}".format(y.principal) }}</td>
-          <td class="proj-col-interest">${{ "{:,.0f}".format(y.interest) }}</td>
-          <td class="proj-col-tax">${{ "{:,.0f}".format(y.tax) }}</td>
-          <td class="proj-col-expenses">${{ "{:,.0f}".format(y.expenses) }}</td>
+          <td class="proj-breakdown"
+              data-breakdown='{{ {"Principal": y.principal|round|int, "Interest": y.interest|round|int}|tojson }}'
+              onmouseenter="showProjTooltip(this)"
+              onmouseleave="scheduleProjHide()"
+              onclick="toggleProjTooltip(this)">
+            ${{ "{:,.0f}".format(y.principal + y.interest) }}
+          </td>
+          <td class="proj-breakdown"
+              data-breakdown='{{ {"Tax": y.tax|round|int, "Insurance": y.ins|round|int, "HOA": y.hoa_yr|round|int, "Maintenance": y.maint|round|int, "Other": y.other_costs|round|int, "Vacancy": y.vacancy|round|int, "Management": y.mgmt|round|int}|tojson }}'
+              onmouseenter="showProjTooltip(this)"
+              onmouseleave="scheduleProjHide()"
+              onclick="toggleProjTooltip(this)">
+            ${{ "{:,.0f}".format(y.tax + y.expenses) }}
+          </td>
           <td class="{{ 'coc-positive' if y.cash_flow > 0 else 'coc-negative' }}">
             ${{ "{:,.0f}".format(y.cash_flow) }}
           </td>

@@ -443,12 +443,21 @@ def parse_detail_payload(row, detail):
             sls = v
             break
 
+    hoa_fee = None
+    hoa = detail.get("hoa") or {}
+    if hoa.get("fee") is not None:
+        try:
+            hoa_fee = int(hoa["fee"])
+        except (ValueError, TypeError):
+            pass
+
     return {
         "num_units":             num_units,
         "beds_per_unit_json":    json.dumps(beds_per_unit),
         "baths_per_unit_json":   json.dumps(baths_per_unit),
         "units_source":          source,
         "source_listing_status": sls,
+        "hoa_fee":               hoa_fee,
     }
 
 
@@ -464,17 +473,25 @@ def fetch_detail(api_key, property_id):
     return data.get("home") or {}
 
 
+# Property types that commonly carry HOA fees — always fetch detail for these
+# so we can populate hoa_fee even when unit count is already known.
+HOA_PRONE_TYPES = {"condos", "townhomes", "coop"}
+
+
 def enrich_pending_details(con, api_key):
     """Call the detail endpoint for every active for-sale listing that we
-    haven't already detailed. Multi-family rows get unit breakdowns; all
-    rows get `source_listing_status`. Returns the count of rows enriched.
+    haven't already detailed, plus HOA-prone types that were previously
+    short-circuited and still have hoa_fee NULL. Multi-family rows get unit
+    breakdowns; all rows get source_listing_status and hoa_fee.
     """
     pending = con.execute(
         """
         SELECT property_id, property_type, sub_type, bedrooms,
                baths_full, baths_total
         FROM properties
-        WHERE is_active=1 AND status='for_sale' AND detail_fetched_at IS NULL
+        WHERE is_active=1 AND status='for_sale'
+          AND (detail_fetched_at IS NULL
+               OR (hoa_fee IS NULL AND property_type IN ('condos','townhomes','coop')))
         """
     ).fetchall()
 
@@ -482,9 +499,10 @@ def enrich_pending_details(con, api_key):
     enriched = 0
     for row in pending:
         row_d = dict(row)
-        # Shortcut: non-multi-family rows we can resolve without the call.
+        # Shortcut only for single-unit types that don't carry HOA.
         list_units, list_src = units_from_list_row(row_d)
-        if list_units is not None and list_src == "property_type":
+        if (list_units is not None and list_src == "property_type"
+                and row_d.get("property_type") not in HOA_PRONE_TYPES):
             fields = parse_detail_payload(row_d, {})
             fields["num_units"] = 1
             fields["units_source"] = "property_type"
@@ -497,14 +515,16 @@ def enrich_pending_details(con, api_key):
                 continue
             fields = parse_detail_payload(row_d, detail)
 
+        update_hoa = "hoa_fee = :hoa_fee," if fields.get("hoa_fee") is not None else ""
         con.execute(
-            """
+            f"""
             UPDATE properties SET
                 num_units             = :num_units,
                 beds_per_unit_json    = :beds_per_unit_json,
                 baths_per_unit_json   = :baths_per_unit_json,
                 units_source          = :units_source,
                 source_listing_status = :source_listing_status,
+                {update_hoa}
                 detail_fetched_at     = :detail_fetched_at
             WHERE property_id = :property_id
             """,

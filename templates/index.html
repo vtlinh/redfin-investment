@@ -182,6 +182,17 @@
     .reset-link { color: #666; font-size: 0.9rem; text-decoration: none; }
     .reset-link:hover { text-decoration: underline; }
     .match-count { align-self: center; line-height: 2rem; }
+    /* Projection breakdown tooltip */
+    #proj-tooltip { display: none; position: absolute; z-index: 300;
+                    background: canvas; border: 1px solid #ddd; border-radius: 6px;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+                    width: 200px; padding: 0.4rem 0; pointer-events: none; }
+    .proj-breakdown { cursor: default; text-decoration: underline dotted;
+                      text-underline-offset: 3px; }
+    .proj-tip-row { display: flex; justify-content: space-between; gap: 1rem;
+                    padding: 0.2rem 0.75rem; font-size: 0.8rem; }
+    .proj-tip-label { color: #888; }
+    .proj-tip-val { font-variant-numeric: tabular-nums; font-weight: 600; }
     /* Rent comp tooltip */
     #rent-tooltip { display: none; position: absolute; z-index: 300;
                     background: canvas; border: 1px solid #ddd; border-radius: 6px;
@@ -221,8 +232,6 @@
 
       /* Projection table — hide less-critical columns, no scroll */
       .projection { overflow: hidden; }
-      .proj-col-principal, .proj-col-interest,
-      .proj-col-tax, .proj-col-expenses,
       .proj-col-annual-roi { display: none; }
       table { width: 100%; font-size: 0.8rem; }
       th, td { padding: 0.3rem 0.4rem; }
@@ -407,6 +416,7 @@
   </div>
 
   <div id="rent-tooltip"></div>
+  <div id="proj-tooltip"></div>
 
   <script>
     // ---- Popup window for realtor URLs -----------------------------------
@@ -551,6 +561,59 @@
     document.addEventListener("click", e => {
       if (_ttOpen && !e.target.closest(".stat-rent") && !e.target.closest("#rent-tooltip")) {
         _tt.style.display = "none"; _ttOpen = false;
+      }
+    });
+
+    // ---- Projection breakdown tooltip ------------------------------------
+    const _pt = document.getElementById("proj-tooltip");
+    let _ptHideTimer = null, _ptOpen = false;
+    function _ptRow(label, val, bold) {
+      const row = document.createElement("div");
+      row.className = "proj-tip-row";
+      const lbl = document.createElement("span");
+      lbl.className = "proj-tip-label";
+      if (bold) lbl.style.fontWeight = "600";
+      lbl.textContent = label;
+      const v = document.createElement("span");
+      v.className = "proj-tip-val";
+      v.textContent = "$" + Math.round(val).toLocaleString();
+      row.appendChild(lbl);
+      row.appendChild(v);
+      return row;
+    }
+    function showProjTooltip(el) {
+      clearTimeout(_ptHideTimer);
+      let bd;
+      try { bd = JSON.parse(el.dataset.breakdown || "{}"); } catch { return; }
+      const entries = Object.entries(bd).filter(([, v]) => v > 0);
+      if (!entries.length) return;
+      const frag = document.createDocumentFragment();
+      entries.forEach(([label, val]) => frag.appendChild(_ptRow(label, val, false)));
+      if (entries.length > 1) {
+        const sep = document.createElement("div");
+        sep.style.cssText = "border-top:1px solid #eee;margin:0.2rem 0";
+        frag.appendChild(sep);
+        frag.appendChild(_ptRow("Total", entries.reduce((s, [, v]) => s + v, 0), true));
+      }
+      _pt.replaceChildren(frag);
+      const rect = el.getBoundingClientRect();
+      _pt.style.top  = (rect.bottom + window.scrollY + 4) + "px";
+      _pt.style.left = Math.max(4, Math.min(rect.left + window.scrollX,
+                                            window.innerWidth + window.scrollX - 208)) + "px";
+      _pt.style.display = "block";
+      _ptOpen = true;
+    }
+    function scheduleProjHide() {
+      _ptHideTimer = setTimeout(() => { _pt.style.display = "none"; _ptOpen = false; }, 200);
+    }
+    function toggleProjTooltip(el) {
+      if (window.matchMedia("(hover: none)").matches) {
+        _ptOpen ? (_pt.style.display = "none", _ptOpen = false) : showProjTooltip(el);
+      }
+    }
+    document.addEventListener("click", e => {
+      if (_ptOpen && !e.target.closest(".proj-breakdown")) {
+        _pt.style.display = "none"; _ptOpen = false;
       }
     });
     // -----------------------------------------------------------------------
