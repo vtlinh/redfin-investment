@@ -298,6 +298,58 @@ def build_headers(sort, filter_qs):
     return out
 
 
+def _attach_rent_comps(con, properties):
+    """For each property in the list, look up its nearest-to-median rental
+    comps from rent_comps.comp_ids_json and attach them as p['rent_comps']
+    — a list of {address_line, list_price, url} dicts sorted descending by price.
+    """
+    # Build unique (city, beds, baths) buckets for this page
+    buckets = {}
+    for p in properties:
+        baths_i = int(round(p["baths_total"])) if p["baths_total"] else 1
+        key = (p["city"], p["bedrooms"] or 0, baths_i)
+        buckets[key] = None  # placeholder
+
+    # Fetch comp_ids_json for each bucket (city-specific, then fallback)
+    for key in list(buckets.keys()):
+        city, beds, baths = key
+        row = con.execute(
+            "SELECT comp_ids_json FROM rent_comps WHERE city=? AND bedrooms=? AND baths=?",
+            (city, beds, baths),
+        ).fetchone()
+        if row and row[0]:
+            buckets[key] = json.loads(row[0])
+            continue
+        row = con.execute(
+            "SELECT comp_ids_json FROM rent_comps WHERE city IS NULL AND bedrooms=? AND baths=?",
+            (beds, baths),
+        ).fetchone()
+        if row and row[0]:
+            buckets[key] = json.loads(row[0])
+
+    # Fetch details for all referenced comp IDs in one query
+    all_ids = {pid for ids in buckets.values() if ids for pid in ids}
+    if all_ids:
+        ph = ",".join("?" * len(all_ids))
+        comp_rows = con.execute(
+            f"SELECT property_id, address_line, list_price, url FROM properties WHERE property_id IN ({ph})",
+            list(all_ids),
+        ).fetchall()
+        detail = {r["property_id"]: dict(r) for r in comp_rows}
+    else:
+        detail = {}
+
+    for p in properties:
+        baths_i = int(round(p["baths_total"])) if p["baths_total"] else 1
+        ids = buckets.get((p["city"], p["bedrooms"] or 0, baths_i)) or []
+        comps = sorted(
+            (detail[pid] for pid in ids if pid in detail),
+            key=lambda x: x["list_price"] or 0,
+            reverse=True,
+        )
+        p["rent_comps"] = comps
+
+
 def fetch_page(con, page, filters, cfg, sort):
     where, params = build_where(filters)
     offset = (page - 1) * PAGE_SIZE
@@ -339,6 +391,7 @@ def fetch_page(con, page, filters, cfg, sort):
         else:
             d["total_roi"] = None
         properties.append(d)
+    _attach_rent_comps(con, properties)
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return properties, total, pages, last_updated
 

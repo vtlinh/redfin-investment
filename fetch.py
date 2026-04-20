@@ -108,11 +108,12 @@ CREATE TABLE IF NOT EXISTS properties (
 
 DROP TABLE IF EXISTS rent_comps;
 CREATE TABLE rent_comps (
-    city         TEXT,
-    bedrooms     INTEGER NOT NULL,
-    baths        INTEGER NOT NULL,
-    median_rent  REAL NOT NULL,
-    sample_size  INTEGER NOT NULL,
+    city           TEXT,
+    bedrooms       INTEGER NOT NULL,
+    baths          INTEGER NOT NULL,
+    median_rent    REAL NOT NULL,
+    sample_size    INTEGER NOT NULL,
+    comp_ids_json  TEXT,
     PRIMARY KEY (city, bedrooms, baths)
 );
 """
@@ -503,14 +504,19 @@ def enrich_pending_details(con, api_key):
     return enriched
 
 
+def _top10_near_median(entries, med):
+    """Return up to 10 property_ids whose price is closest to the median."""
+    return [pid for _, pid in sorted(entries, key=lambda x: abs(x[0] - med))[:10]]
+
+
 def build_rent_comps(con):
     """Bucket every for-rent listing by (city, bedrooms, round(baths)) and
-    write the median rent per bucket into `rent_comps`. Also writes a
-    city=NULL fallback row for each (beds, baths) bucket.
+    write the median rent + 10 nearest-to-median comp IDs into `rent_comps`.
+    Also writes a city=NULL fallback row for each (beds, baths) bucket.
     """
     rentals = con.execute(
         """
-        SELECT city, bedrooms,
+        SELECT property_id, city, bedrooms,
                CAST(ROUND(COALESCE(baths_total, baths_full, 1)) AS INTEGER) AS baths,
                list_price
         FROM properties
@@ -521,22 +527,28 @@ def build_rent_comps(con):
         (MAX_COMP_RENT,),
     ).fetchall()
 
-    by_city = defaultdict(list)
-    by_any = defaultdict(list)
-    for city, beds, baths, price in rentals:
-        by_city[(city, beds, baths)].append(price)
-        by_any[(beds, baths)].append(price)
+    by_city = defaultdict(list)  # (city, beds, baths) -> [(price, property_id)]
+    by_any  = defaultdict(list)  # (beds, baths)       -> [(price, property_id)]
+    for prop_id, city, beds, baths, price in rentals:
+        by_city[(city, beds, baths)].append((price, prop_id))
+        by_any[(beds, baths)].append((price, prop_id))
 
     rows = []
-    for (city, beds, baths), prices in by_city.items():
-        if len(prices) >= MIN_COMP_SAMPLES:
-            rows.append((city, beds, baths, median(prices), len(prices)))
-    for (beds, baths), prices in by_any.items():
-        if prices:
-            rows.append((None, beds, baths, median(prices), len(prices)))
+    for (city, beds, baths), entries in by_city.items():
+        if len(entries) >= MIN_COMP_SAMPLES:
+            prices = [p for p, _ in entries]
+            med    = median(prices)
+            rows.append((city, beds, baths, med, len(entries),
+                         json.dumps(_top10_near_median(entries, med))))
+    for (beds, baths), entries in by_any.items():
+        if entries:
+            prices = [p for p, _ in entries]
+            med    = median(prices)
+            rows.append((None, beds, baths, med, len(entries),
+                         json.dumps(_top10_near_median(entries, med))))
 
     con.executemany(
-        "INSERT OR REPLACE INTO rent_comps VALUES (?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO rent_comps VALUES (?, ?, ?, ?, ?, ?)",
         rows,
     )
     return len(rows)

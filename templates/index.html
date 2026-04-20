@@ -182,6 +182,24 @@
     .reset-link { color: #666; font-size: 0.9rem; text-decoration: none; }
     .reset-link:hover { text-decoration: underline; }
     .match-count { align-self: center; line-height: 2rem; }
+    /* Rent comp tooltip */
+    #rent-tooltip { display: none; position: absolute; z-index: 300;
+                    background: canvas; border: 1px solid #ddd; border-radius: 6px;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+                    width: 300px; max-height: 320px; overflow-y: auto; }
+    .comp-row { display: flex; justify-content: space-between; align-items: center;
+                padding: 0.45rem 0.75rem; color: inherit; text-decoration: none;
+                font-size: 0.8rem; gap: 0.5rem; border-bottom: 1px solid rgba(0,0,0,0.05); }
+    .comp-row:last-child { border-bottom: none; }
+    .comp-row:hover { background: rgba(0,0,0,0.04); }
+    .comp-addr { flex: 1; min-width: 0; overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+    .comp-price { flex-shrink: 0; font-variant-numeric: tabular-nums;
+                  font-weight: 600; color: #2563eb; }
+    .tooltip-header { padding: 0.4rem 0.75rem; font-size: 0.7rem;
+                      text-transform: uppercase; letter-spacing: 0.04em;
+                      color: #888; border-bottom: 1px solid #eee; }
+    .stat-rent { cursor: pointer; }
     @media (max-width: 640px) {
       body { margin: 1rem auto; }
       h1 { font-size: 1.4rem; }
@@ -387,7 +405,13 @@
         <div class="stat" data-label="List">
           <div class="val">${{ "{:,.0f}".format(p.list_price) }}</div>
         </div>
-        <div class="stat" data-label="Rent/mo">
+        <div class="stat stat-rent" data-label="Rent/mo"
+             {% if p.rent_comps %}
+             data-comps='{{ p.rent_comps | tojson }}'
+             onmouseenter="showRentTooltip(this)"
+             onmouseleave="scheduleHideTooltip()"
+             onclick="toggleRentTooltip(this)"
+             {% endif %}>
           <div class="val">${{ "{:,.0f}".format(p.annual_income / 12) }}</div>
         </div>
         <div class="stat" data-label="Cashflow">
@@ -468,7 +492,71 @@
     <a href="?page={{ page + 1 }}{{ fqs }}{{ sqs }}" aria-disabled="{{ 'true' if page >= pages else 'false' }}">Next &rarr;</a>
   </div>
 
+  <div id="rent-tooltip"></div>
+
   <script>
+    // ---- Rent comp tooltip -----------------------------------------------
+    const _tt = document.getElementById("rent-tooltip");
+    let _ttHideTimer = null;
+    let _ttOpen = false;
+
+    function buildTooltipContent(comps) {
+      const frag = document.createDocumentFragment();
+      const hdr = document.createElement("div");
+      hdr.className = "tooltip-header";
+      hdr.textContent = "Rental comps (nearest to median)";
+      frag.appendChild(hdr);
+      comps.forEach(c => {
+        const a = document.createElement("a");
+        a.href = c.url || "#";
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.className = "comp-row";
+        const addr = document.createElement("span");
+        addr.className = "comp-addr";
+        addr.textContent = c.address_line || "\u2014";
+        const price = document.createElement("span");
+        price.className = "comp-price";
+        price.textContent = "$" + Math.round(c.list_price).toLocaleString() + "/mo";
+        a.appendChild(addr);
+        a.appendChild(price);
+        frag.appendChild(a);
+      });
+      return frag;
+    }
+
+    function showRentTooltip(el) {
+      clearTimeout(_ttHideTimer);
+      const comps = JSON.parse(el.dataset.comps || "[]");
+      if (!comps.length) return;
+      _tt.replaceChildren(buildTooltipContent(comps));
+      const rect = el.getBoundingClientRect();
+      const left = Math.min(rect.left + window.scrollX,
+                            window.innerWidth + window.scrollX - 308);
+      _tt.style.top  = (rect.bottom + window.scrollY + 4) + "px";
+      _tt.style.left = Math.max(4, left) + "px";
+      _tt.style.display = "block";
+      _ttOpen = true;
+    }
+    function scheduleHideTooltip() {
+      _ttHideTimer = setTimeout(() => {
+        _tt.style.display = "none"; _ttOpen = false;
+      }, 200);
+    }
+    function toggleRentTooltip(el) {
+      if (window.matchMedia("(hover: none)").matches) {
+        _ttOpen ? (_tt.style.display = "none", _ttOpen = false) : showRentTooltip(el);
+      }
+    }
+    _tt.addEventListener("mouseenter", () => clearTimeout(_ttHideTimer));
+    _tt.addEventListener("mouseleave", scheduleHideTooltip);
+    document.addEventListener("click", e => {
+      if (_ttOpen && !e.target.closest(".stat-rent") && !e.target.closest("#rent-tooltip")) {
+        _tt.style.display = "none"; _ttOpen = false;
+      }
+    });
+    // -----------------------------------------------------------------------
+
     function toggle(btn) {
       const panel = document.getElementById(btn.getAttribute("aria-controls"));
       const open = btn.getAttribute("aria-expanded") === "true";
