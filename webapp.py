@@ -338,7 +338,7 @@ def _attach_rent_comps(con, properties):
     if all_ids:
         ph = ",".join("?" * len(all_ids))
         comp_rows = con.execute(
-            f"SELECT property_id, address_line, list_price, url FROM properties WHERE property_id IN ({ph})",
+            f"SELECT property_id, address_line, city, list_price, url FROM properties WHERE property_id IN ({ph})",
             list(all_ids),
         ).fetchall()
         detail = {r["property_id"]: dict(r) for r in comp_rows}
@@ -348,8 +348,9 @@ def _attach_rent_comps(con, properties):
     for p in properties:
         baths_i = int(round(p["baths_total"])) if p["baths_total"] else 1
         ids = buckets.get((p["city"], p["bedrooms"] or 0, baths_i)) or []
+        # Filter to same city — prevents cross-city matches from the NULL fallback bucket
         comps = sorted(
-            (detail[pid] for pid in ids if pid in detail),
+            (detail[pid] for pid in ids if pid in detail and detail[pid]["city"] == p["city"]),
             key=lambda x: x["list_price"] or 0,
             reverse=True,
         )
