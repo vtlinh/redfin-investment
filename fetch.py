@@ -556,14 +556,24 @@ def build_rent_comps(con):
 
 
 def main():
-    api_key = os.environ.get("RAPIDAPI_KEY")
-    if not api_key:
-        raise SystemExit("RAPIDAPI_KEY environment variable is required")
+    import sys
+    comps_only = "--comps-only" in sys.argv[1:]
 
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
     migrate(con)
+
+    if comps_only:
+        with con:
+            comp_rows = build_rent_comps(con)
+        con.close()
+        print(f"Rebuilt {comp_rows} rent comps -> {DB_PATH}")
+        return
+
+    api_key = os.environ.get("RAPIDAPI_KEY")
+    if not api_key:
+        raise SystemExit("RAPIDAPI_KEY environment variable is required")
 
     total_inserted = 0
     with con:
