@@ -97,9 +97,12 @@ def covered_by_rent_comps(con):
 
 
 def already_in_external(con):
-    """Return set of (postal_code, beds, baths) already in external_rent_estimates."""
+    """Return set of (postal_code, beds, baths) that already have a Rentcast estimate.
+    HUD FMR estimates are excluded so Rentcast can still fill those groups with
+    more precise market data.
+    """
     rows = con.execute(
-        "SELECT DISTINCT postal_code, bedrooms, baths FROM external_rent_estimates"
+        "SELECT DISTINCT postal_code, bedrooms, baths FROM external_rent_estimates WHERE source='rentcast'"
     ).fetchall()
     return {(r[0], r[1], r[2]) for r in rows}
 
