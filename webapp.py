@@ -499,6 +499,7 @@ def fetch_page(con, page, filters, cfg, sort):
         f"""SELECT p.property_id, p.address_line, p.city, p.state, p.postal_code,
                    p.list_price, p.property_type, p.bedrooms, p.baths_total,
                    p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
+                   p.management_fee,
                    p.beds_per_unit_json, p.baths_per_unit_json,
                    c.annual_income, c.mortgage, c.expenses, c.cash_flow,
                    c.cash_on_cash_return,
@@ -527,7 +528,9 @@ def fetch_page(con, page, filters, cfg, sort):
             d.update(total_roi=None, projection=[], rent_comps=[])
         else:
             d["projection"] = project(d["list_price"], d["annual_income"],
-                                      d["mortgage"], d["hoa_fee"], cfg,
+                                      d["mortgage"],
+                                      (d["hoa_fee"] or 0) + (d["management_fee"] or 0),
+                                      cfg,
                                       is_low_income=bool(d.get("is_low_income")))
             d["total_roi"] = d["projection"][-1]["annual_roi"] if d["projection"] else None
         d["unit_breakdown"] = unit_breakdown(d)

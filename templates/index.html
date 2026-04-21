@@ -20,11 +20,12 @@
     .info a:hover .addr { text-decoration: underline; }
     .addr { font-weight: 600; }
     .sub { font-size: 0.85rem; color: #666; margin-top: 0.1rem; }
-    .tag-low-income, .tag-has-hoa { display: inline-block; margin-top: 0.25rem;
+    .tag-low-income, .tag-has-hoa, .tag-management { display: inline-block; margin-top: 0.25rem;
                       font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;
                       border-radius: 3px; padding: 0.05rem 0.35rem; margin-right: 0.35rem; }
     .tag-low-income { color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; }
     .tag-has-hoa { color: #1d4ed8; background: #dbeafe; border: 1px solid #93c5fd; }
+    .tag-management { color: #6b21a8; background: #f3e8ff; border: 1px solid #d8b4fe; }
     .stats { display: grid;
              grid-template-columns: 4.5rem 3.5rem 4.5rem 3rem 3rem;
              gap: 0 1rem; font-size: 0.9rem; text-align: right; }
@@ -552,7 +553,7 @@
         note.style.textTransform = "none";
         note.style.letterSpacing = "0";
         note.style.color = "#2563eb";
-        note.textContent = `Multi-unit (${units} units): rent is per-unit comp × ${units}`;
+        note.textContent = `Multi-unit (${units} units): rent is sum of each unit's comp`;
         frag.appendChild(note);
       }
       comps.forEach(c => {

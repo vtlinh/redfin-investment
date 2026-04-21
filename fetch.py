@@ -143,6 +143,7 @@ _MIGRATION_COLUMNS = [
     ("url",                   "TEXT"),
     ("hoa_fee",               "INTEGER"),
     ("tract_fips",            "TEXT"),
+    ("management_fee",        "REAL"),
 ]
 
 # UPSERT preserves detail-derived columns (num_units, *_per_unit_json,
