@@ -231,7 +231,7 @@ def parse_filters(args):
         "max_hoa":        _int("max_hoa"),
         "no_hoa":         args.get("no_hoa") == "1",
         "q":              (args.get("q") or "").strip(),
-        "no_rent_info":   args.get("no_rent_info") == "1",
+        "hide_no_rent":   "1" in args.getlist("hide_no_rent") if "hide_no_rent" in args else True,
         "hide_ghetto":    "1" in args.getlist("hide_ghetto") if "hide_ghetto" in args else True,
         "hide_few_photos": "1" in args.getlist("hide_few_photos") if "hide_few_photos" in args else True,
     }
@@ -315,7 +315,7 @@ def filter_querystring(filters):
         if k == "property_types":
             for t in v:
                 parts.append(("property_type", t))
-        elif k in ("no_rent_info", "hide_ghetto", "hide_few_photos", "no_hoa"):
+        elif k in ("hide_no_rent", "hide_ghetto", "hide_few_photos", "no_hoa"):
             if v:
                 parts.append((k, "1"))
         elif v not in (None, "", 0):
@@ -482,80 +482,57 @@ def fetch_page(con, page, filters, cfg, sort):
         "SELECT MAX(last_seen_at) FROM properties WHERE is_active=1"
     ).fetchone()[0]
 
-    if filters.get("no_rent_info"):
-        # Properties with no city-specific rent comp (absent from cashflow_analysis)
-        total = con.execute(
-            f"""SELECT COUNT(*) FROM properties p
-                LEFT JOIN cashflow_analysis c USING(property_id)
-                WHERE {where} AND p.status='for_sale'
-                  AND p.list_price >= {analyze.MIN_LIST_PRICE} AND c.property_id IS NULL""",
-            params,
-        ).fetchone()[0]
-        rows = con.execute(
-            f"""SELECT p.property_id, p.address_line, p.city, p.state, p.postal_code,
-                       p.list_price, p.property_type, p.bedrooms, p.baths_total,
-                       p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
-                       p.beds_per_unit_json, p.baths_per_unit_json
-                FROM properties p
-                LEFT JOIN cashflow_analysis c USING(property_id)
-                WHERE {where} AND p.status='for_sale'
-                  AND p.list_price >= {analyze.MIN_LIST_PRICE} AND c.property_id IS NULL
-                ORDER BY p.list_price ASC, p.property_id ASC
-                LIMIT ? OFFSET ?""",
-            params + [PAGE_SIZE, offset],
-        ).fetchall()
-        properties = []
-        for r in rows:
-            d = dict(r)
-            d.update(annual_income=None, mortgage=None, expenses=None,
-                     cash_flow=None, cash_on_cash_return=None,
-                     total_roi=None, projection=[], rent_comps=[])
-            d["unit_breakdown"] = unit_breakdown(d)
-            properties.append(d)
-    else:
-        sort_key, sort_dir = sort
-        sort_sql = SORT_COLS[sort_key][0]
-        total = con.execute(
-            f"SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id) WHERE {where}",
-            params,
-        ).fetchone()[0]
-        rows = con.execute(
-            f"""SELECT p.property_id, p.address_line, p.city, p.state, p.postal_code,
-                       p.list_price, p.property_type, p.bedrooms, p.baths_total,
-                       p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
-                       p.beds_per_unit_json, p.baths_per_unit_json,
-                       c.annual_income, c.mortgage, c.expenses, c.cash_flow,
-                       c.cash_on_cash_return,
-                       CASE WHEN (
-                         (p.tract_fips IS NOT NULL AND p.tract_fips IN (
-                           SELECT tract_fips FROM tract_demographics
-                           WHERE median_household_income < 60000
-                              OR poverty_rate > 0.15))
-                         OR
-                         (p.tract_fips IS NULL AND p.postal_code IN (
-                           SELECT postal_code FROM zip_demographics
-                           WHERE median_household_income < 60000
-                              OR poverty_rate > 0.15))
-                       ) THEN 1 ELSE 0 END AS is_low_income
-                FROM cashflow_analysis c JOIN properties p USING(property_id)
-                WHERE {where}
-                ORDER BY {sort_sql} {sort_dir}, p.property_id ASC
-                LIMIT ? OFFSET ?""",
-            params + [PAGE_SIZE, offset],
-        ).fetchall()
-        properties = []
-        for r in rows:
-            d = dict(r)
+    sort_key, sort_dir = sort
+    sort_sql = SORT_COLS[sort_key][0]
+    join_type = "JOIN" if filters.get("hide_no_rent") else "LEFT JOIN"
+    extra_where = (
+        f" AND p.status='for_sale' AND p.list_price >= {analyze.MIN_LIST_PRICE}"
+        if not filters.get("hide_no_rent") else ""
+    )
+    total = con.execute(
+        f"""SELECT COUNT(*) FROM properties p
+            {join_type} cashflow_analysis c USING(property_id)
+            WHERE {where}{extra_where}""",
+        params,
+    ).fetchone()[0]
+    rows = con.execute(
+        f"""SELECT p.property_id, p.address_line, p.city, p.state, p.postal_code,
+                   p.list_price, p.property_type, p.bedrooms, p.baths_total,
+                   p.area_sqft, p.year_built, p.num_units, p.url, p.hoa_fee,
+                   p.beds_per_unit_json, p.baths_per_unit_json,
+                   c.annual_income, c.mortgage, c.expenses, c.cash_flow,
+                   c.cash_on_cash_return,
+                   CASE WHEN (
+                     (p.tract_fips IS NOT NULL AND p.tract_fips IN (
+                       SELECT tract_fips FROM tract_demographics
+                       WHERE median_household_income < 60000
+                          OR poverty_rate > 0.15))
+                     OR
+                     (p.tract_fips IS NULL AND p.postal_code IN (
+                       SELECT postal_code FROM zip_demographics
+                       WHERE median_household_income < 60000
+                          OR poverty_rate > 0.15))
+                   ) THEN 1 ELSE 0 END AS is_low_income
+            FROM properties p
+            {join_type} cashflow_analysis c USING(property_id)
+            WHERE {where}{extra_where}
+            ORDER BY {sort_sql} {sort_dir}, p.property_id ASC
+            LIMIT ? OFFSET ?""",
+        params + [PAGE_SIZE, offset],
+    ).fetchall()
+    properties = []
+    for r in rows:
+        d = dict(r)
+        if d.get("annual_income") is None:
+            d.update(total_roi=None, projection=[], rent_comps=[])
+        else:
             d["projection"] = project(d["list_price"], d["annual_income"],
                                       d["mortgage"], d["hoa_fee"], cfg,
                                       is_low_income=bool(d.get("is_low_income")))
-            d["unit_breakdown"] = unit_breakdown(d)
-            if d["projection"]:
-                d["total_roi"] = d["projection"][-1]["annual_roi"]
-            else:
-                d["total_roi"] = None
-            properties.append(d)
-        _attach_rent_comps(con, properties)
+            d["total_roi"] = d["projection"][-1]["annual_roi"] if d["projection"] else None
+        d["unit_breakdown"] = unit_breakdown(d)
+        properties.append(d)
+    _attach_rent_comps(con, properties)
 
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return properties, total, pages, last_updated
@@ -593,37 +570,6 @@ def index():
             "ORDER BY property_type"
         ).fetchall()
     ]
-    no_rent_count = con.execute(
-        f"""SELECT COUNT(*) FROM properties p
-           LEFT JOIN cashflow_analysis c USING(property_id)
-           WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
-             AND p.status='for_sale'
-             AND p.list_price IS NOT NULL AND p.list_price >= {analyze.MIN_LIST_PRICE}
-             AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
-             AND c.property_id IS NULL"""
-    ).fetchone()[0]
-    ghetto_count = con.execute(
-        f"""SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id)
-            WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
-              AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
-              AND (
-                (p.tract_fips IS NOT NULL AND p.tract_fips IN (
-                  SELECT tract_fips FROM tract_demographics
-                  WHERE median_household_income < 60000
-                     OR poverty_rate > 0.15))
-                OR
-                (p.tract_fips IS NULL AND p.postal_code IN (
-                  SELECT postal_code FROM zip_demographics
-                  WHERE median_household_income < 60000
-                     OR poverty_rate > 0.15))
-              )"""
-    ).fetchone()[0]
-    few_photos_count = con.execute(
-        """SELECT COUNT(*) FROM cashflow_analysis c JOIN properties p USING(property_id)
-            WHERE p.is_active=1 AND p.is_pending=0 AND p.is_contingent=0
-              AND p.address_line IS NOT NULL AND TRIM(p.address_line) != ''
-              AND json_extract(p.extra_info, '$.photo_count') < 5"""
-    ).fetchone()[0]
     con.close()
     if page > pages and total > 0:
         abort(404)
@@ -651,9 +597,6 @@ def index():
         config_groups=CONFIG_GROUPS,
         headers=build_headers(sort, filter_querystring(filters)),
         sort_qs=f"sort={sort[0]}&dir={sort[1].lower()}",
-        no_rent_count=no_rent_count,
-        ghetto_count=ghetto_count,
-        few_photos_count=few_photos_count,
     )
 
 
