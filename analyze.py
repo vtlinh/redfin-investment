@@ -287,7 +287,7 @@ def analyze(conn, cfg=None):
     rows = conn.execute(
         f"""
         SELECT p.property_id, p.list_price, p.property_type, p.city,
-               p.bedrooms, p.baths_full, p.baths_total, p.hoa_fee, p.management_fee,
+               p.bedrooms, p.baths_full, p.baths_total, p.hoa_fee,
                p.latitude, p.longitude, p.address_line, p.postal_code,
                p.list_date{extras_sql}{low_income_sql}
         FROM properties p
@@ -314,7 +314,7 @@ def analyze(conn, cfg=None):
         annual_mort   = monthly_mortgage_payment(loan, cfg["interest_rate"], cfg["loan_term_years"]) * 12
         annual_tax    = list_price * PROPERTY_TAX_RATE
         annual_ins    = list_price * cfg["insurance_rate"]
-        annual_hoa    = ((r["hoa_fee"] or 0) + (r["management_fee"] or 0)) * 12
+        annual_hoa    = (r["hoa_fee"] or 0) * 12
         annual_maint  = list_price * cfg["maintenance_rate"]  # base; low-income doubling applied below
         annual_other  = list_price * cfg["other_costs_rate"]
         keys = r.keys() if hasattr(r, "keys") else []
