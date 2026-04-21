@@ -12,6 +12,7 @@ Usage:
   CENSUS_KEY=... uv run census_fill.py
 """
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -37,6 +38,10 @@ def fetch_acs_nj(api_key=None):
     """Fetch ACS5 median income and poverty data for NJ ZCTAs.
     ZCTAs don't nest under states in the Census API, so we fetch all ZCTAs
     and filter to NJ prefixes (07xxx / 08xxx). API key is optional.
+
+    Returns list of (zcta, income, poverty_rate, raw_row_dict). `raw_row_dict`
+    preserves the original Census API row (header → value) so downstream code
+    can cache the unprocessed payload in extra_info.
     """
     params = {
         "get": "B19013_001E,B17001_002E,B17001_001E,NAME",
@@ -63,7 +68,8 @@ def fetch_acs_nj(api_key=None):
         if income < 0 or pov_den <= 0:
             continue
         poverty_rate = pov_num / pov_den
-        results.append((zcta, income, poverty_rate))
+        raw = dict(zip(headers, row))
+        results.append((zcta, income, poverty_rate, raw))
     return results
 
 
@@ -72,10 +78,10 @@ def store(con, rows):
     con.executemany(
         """
         INSERT OR REPLACE INTO zip_demographics
-            (postal_code, median_household_income, poverty_rate, fetched_at)
-        VALUES (?, ?, ?, ?)
+            (postal_code, median_household_income, poverty_rate, fetched_at, extra_info)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        [(z, inc, pov, now) for z, inc, pov in rows],
+        [(z, inc, pov, now, json.dumps(raw)) for z, inc, pov, raw in rows],
     )
 
 
@@ -87,10 +93,13 @@ def main():
             postal_code              TEXT PRIMARY KEY,
             median_household_income  INTEGER,
             poverty_rate             REAL,
-            fetched_at               TEXT NOT NULL
+            fetched_at               TEXT NOT NULL,
+            extra_info               TEXT
         )
         """
     )
+    from fetch import _ensure_extra_info
+    _ensure_extra_info(con, "zip_demographics")
     con.commit()
 
     print("Fetching ACS5 data for NJ ZCTAs...")
@@ -99,7 +108,7 @@ def main():
         store(con, rows)
 
     flagged = sum(
-        1 for _, inc, pov in rows
+        1 for _, inc, pov, _ in rows
         if inc < LOW_INCOME_THRESHOLD or pov > HIGH_POVERTY_THRESHOLD
     )
     print(f"Stored {len(rows)} zip codes ({flagged} flagged as low-income/high-poverty).")

@@ -22,7 +22,9 @@ import json
 import os
 import re
 import sqlite3
+import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
@@ -37,6 +39,9 @@ DETAIL_URL = "https://realty-in-us.p.rapidapi.com/properties/v3/detail"
 API_HOST = "realty-in-us.p.rapidapi.com"
 DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "properties.db"))
 PAGE_SIZE = 200
+DETAIL_WORKERS = 5
+DETAIL_MAX_RETRIES = 5
+DETAIL_BACKOFF_BASE = 2.0  # seconds; doubled each retry
 
 COUNTIES = [
     ("Essex",   "NJ"),
@@ -128,6 +133,7 @@ CREATE TABLE IF NOT EXISTS external_rent_estimates (
     rent_estimate REAL NOT NULL,
     source       TEXT NOT NULL,
     fetched_at   TEXT NOT NULL,
+    extra_info   TEXT,
     PRIMARY KEY (postal_code, bedrooms, baths, source)
 );
 """
@@ -178,6 +184,9 @@ ON CONFLICT(property_id) DO UPDATE SET
     is_active     = 1,
     is_pending    = excluded.is_pending,
     is_contingent = excluded.is_contingent,
+    -- Merge new list-endpoint extra_info on top of whatever is there, so
+    -- cached detail (extra_info.detail) survives a list refresh.
+    extra_info    = json_patch(COALESCE(properties.extra_info, '{}'), excluded.extra_info),
     url           = COALESCE(excluded.url, properties.url)
 ;
 """
@@ -191,9 +200,33 @@ _INDEXES = [
 ]
 
 
+# Tables that receive API-derived data. `extra_info` caches the raw payload
+# slice that produced the row so downstream code can re-extract fields later
+# without another API call.
+_EXTRA_INFO_TABLES = (
+    "properties", "external_rent_estimates",
+    "zip_demographics", "tract_demographics",
+)
+
+
+def _ensure_extra_info(con, table):
+    """Idempotently add `extra_info TEXT` to a table that may predate the
+    column (older DBs)."""
+    if not con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone():
+        return
+    cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+    if "extra_info" not in cols:
+        con.execute(f"ALTER TABLE {table} ADD COLUMN extra_info TEXT")
+
+
 def migrate(con):
     """Add any missing columns to an existing properties table, then ensure
     indexes exist (indexes are created after migrate so columns exist first).
+    Also ensures `extra_info` exists on every API-derived table so raw
+    payloads can be cached consistently.
     """
     existing = {r[1] for r in con.execute("PRAGMA table_info(properties)")}
     for name, decl in _MIGRATION_COLUMNS:
@@ -201,6 +234,8 @@ def migrate(con):
             con.execute(f"ALTER TABLE properties ADD COLUMN {name} {decl}")
     for stmt in _INDEXES:
         con.execute(stmt)
+    for t in _EXTRA_INFO_TABLES:
+        _ensure_extra_info(con, t)
 
 
 def flatten(home):
@@ -248,12 +283,17 @@ def flatten(home):
         "primary_photo": photo.get("href"),
         "url":           home.get("href"),
         "tags_json":     json.dumps(home.get("tags") or []),
+        # Preserve the full list-endpoint payload under `list` so we can
+        # re-extract fields later without another API call. Curated top-level
+        # keys stay for existing json_extract queries (e.g. webapp's
+        # `$.photo_count` filter).
         "extra_info":    json.dumps({
             "flags":         home.get("flags"),
             "open_houses":   home.get("open_houses"),
             "virtual_tours": home.get("virtual_tours"),
             "matterport":    home.get("matterport"),
             "photo_count":   home.get("photo_count"),
+            "list":          home,
         }),
         "fetched_at":    datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "is_pending":    1 if flags.get("is_pending") else 0,
@@ -270,8 +310,7 @@ def fetch_page(api_key, county, state_code, status, limit, offset):
     payload = {
         "limit": limit,
         "offset": offset,
-        "county": county,
-        "state_code": state_code,
+        "search_location": {"location": f"{county} County, {state_code}"},
         "status": status,
         "sort": {"direction": "desc", "field": "list_date"},
     }
@@ -395,6 +434,45 @@ def units_from_detail(detail):
     return None, None
 
 
+# Coop maintenance / management fees are usually buried in description.text
+# rather than the structured `hoa.fee` field. Regex-scan for "$N/mo",
+# "$N monthly", "maintenance ... $N", etc. and take the largest plausible hit.
+# "Total" patterns win when present since they capture the true all-in monthly
+# (e.g., "TOTAL MONTHLY $1,978.65" summing HOA + assessments + cable).
+_TOTAL_PATTERNS = [
+    re.compile(r"(?:total|grand\s+total)[^$\n]{0,40}\$\s?([\d,]{2,7})", re.I),
+    re.compile(r"\$\s?([\d,]{2,7})[^$\n]{0,20}(?:total|grand\s+total)", re.I),
+]
+_FEE_PATTERNS = [
+    re.compile(r"\$\s?([\d,]{2,7})\s*(?:/|\s+per\s+|\s+a\s+)?\s*(?:mo(?:nth)?(?:ly)?)", re.I),
+    re.compile(r"(?:maintenance|management|monthly\s+fee|coop\s+fee|co-?op\s+fee)"
+               r"[^$\n]{0,30}\$\s?([\d,]{2,7})", re.I),
+    re.compile(r"\$\s?([\d,]{2,7})[^$\n]{0,20}(?:maintenance|management)", re.I),
+]
+
+
+def _max_match(patterns, text):
+    best = None
+    for pat in patterns:
+        for m in pat.finditer(text):
+            try:
+                val = float(m.group(1).replace(",", ""))
+            except ValueError:
+                continue
+            if 100 <= val <= 10000 and (best is None or val > best):
+                best = val
+    return best
+
+
+def extract_management_fee(text):
+    if not text:
+        return None
+    total = _max_match(_TOTAL_PATTERNS, text)
+    if total is not None:
+        return total
+    return _max_match(_FEE_PATTERNS, text)
+
+
 def parse_detail_payload(row, detail):
     """Combine list-row signals with detail-endpoint signals into a single
     set of unit fields. Returns dict with num_units, beds_per_unit_json,
@@ -458,6 +536,17 @@ def parse_detail_payload(row, detail):
         except (ValueError, TypeError):
             pass
 
+    # Maintenance / management fees are often buried in description.text
+    # instead of the structured `hoa.fee` field (especially for coops, but
+    # also for some condos/townhomes). Scrape every listing and fold the
+    # extracted fee into hoa_fee (max) so downstream analysis sees a single
+    # combined monthly fee.
+    desc_text = ((detail.get("description") or {}).get("text")) or ""
+    management_fee = extract_management_fee(desc_text)
+    if management_fee is not None:
+        mf_int = int(management_fee)
+        hoa_fee = mf_int if hoa_fee is None else max(hoa_fee, mf_int)
+
     return {
         "num_units":             num_units,
         "beds_per_unit_json":    json.dumps(beds_per_unit),
@@ -465,6 +554,7 @@ def parse_detail_payload(row, detail):
         "units_source":          source,
         "source_listing_status": sls,
         "hoa_fee":               hoa_fee,
+        "management_fee":        management_fee,
     }
 
 
@@ -473,11 +563,21 @@ def fetch_detail(api_key, property_id):
         "X-RapidAPI-Key": api_key,
         "X-RapidAPI-Host": API_HOST,
     }
-    r = requests.get(DETAIL_URL, headers=headers,
-                     params={"property_id": property_id}, timeout=30)
-    r.raise_for_status()
-    data = r.json().get("data") or {}
-    return data.get("home") or {}
+    for attempt in range(DETAIL_MAX_RETRIES + 1):
+        r = requests.get(DETAIL_URL, headers=headers,
+                         params={"property_id": property_id}, timeout=30)
+        if r.status_code == 429 and attempt < DETAIL_MAX_RETRIES:
+            # Honor Retry-After when RapidAPI supplies it; else exponential backoff.
+            retry_after = r.headers.get("Retry-After")
+            try:
+                delay = float(retry_after) if retry_after else DETAIL_BACKOFF_BASE * (2 ** attempt)
+            except ValueError:
+                delay = DETAIL_BACKOFF_BASE * (2 ** attempt)
+            time.sleep(delay)
+            continue
+        r.raise_for_status()
+        data = r.json().get("data") or {}
+        return data.get("home") or {}
 
 
 # Property types that commonly carry HOA fees — always fetch detail for these
@@ -486,21 +586,24 @@ HOA_PRONE_TYPES = {"condos", "townhomes", "coop"}
 
 
 def enrich_pending_details(con, api_key, refresh_existing=False):
-    """Call the detail endpoint for every active for-sale listing that we
-    haven't already detailed, plus HOA-prone types that were previously
-    short-circuited and still have hoa_fee NULL. Multi-family rows get unit
-    breakdowns; all rows get source_listing_status and hoa_fee.
+    """Populate detail-derived fields (unit breakdown, hoa_fee, management_fee,
+    source_listing_status). Uses the cached detail payload at
+    ``extra_info.detail`` when present so no API call is needed; falls back to
+    the detail endpoint otherwise.
+
+    With ``refresh_existing=True``, also re-processes rows missing hoa_fee or
+    management_fee so extraction-logic changes can backfill from cached data.
     """
     where_extra = ""
     if refresh_existing:
         where_extra = (
-            " OR (hoa_fee IS NULL AND property_type IN "
-            "('condos','townhomes','coop'))"
+            " OR hoa_fee IS NULL"
+            " OR management_fee IS NULL"
         )
     pending = con.execute(
         f"""
         SELECT property_id, property_type, sub_type, bedrooms,
-               baths_full, baths_total
+               baths_full, baths_total, extra_info
         FROM properties
         WHERE is_active=1 AND status='for_sale'
           AND (detail_fetched_at IS NULL{where_extra})
@@ -509,43 +612,67 @@ def enrich_pending_details(con, api_key, refresh_existing=False):
 
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     enriched = 0
-    for row in pending:
-        row_d = dict(row)
-        # Shortcut only for single-unit types that don't carry HOA.
-        list_units, list_src = units_from_list_row(row_d)
-        if (list_units is not None and list_src == "property_type"
-                and row_d.get("property_type") not in HOA_PRONE_TYPES):
-            fields = parse_detail_payload(row_d, {})
-            fields["num_units"] = 1
-            fields["units_source"] = "property_type"
-            fields["source_listing_status"] = None
-        else:
-            try:
-                detail = fetch_detail(api_key, row_d["property_id"])
-            except requests.RequestException as e:
-                print(f"  detail fetch failed for {row_d['property_id']}: {e}")
-                continue
-            fields = parse_detail_payload(row_d, detail)
 
-        update_hoa = "hoa_fee = :hoa_fee," if fields.get("hoa_fee") is not None else ""
-        con.execute(
-            f"""
-            UPDATE properties SET
-                num_units             = :num_units,
-                beds_per_unit_json    = :beds_per_unit_json,
-                baths_per_unit_json   = :baths_per_unit_json,
-                units_source          = :units_source,
-                source_listing_status = :source_listing_status,
-                {update_hoa}
-                detail_fetched_at     = :detail_fetched_at
-            WHERE property_id = :property_id
-            """,
-            {**fields, "detail_fetched_at": now, "property_id": row_d["property_id"]},
-        )
-        enriched += 1
-        if enriched % 50 == 0:
-            con.commit()
-    con.commit()
+    def _load_extra(row_d):
+        if not row_d.get("extra_info"):
+            return {}
+        try:
+            return json.loads(row_d["extra_info"]) or {}
+        except (ValueError, TypeError):
+            return {}
+
+    def _fetch(row):
+        row_d = dict(row)
+        extra = _load_extra(row_d)
+        cached = extra.get("detail")
+        if cached:
+            return row_d, cached, None, extra, True
+        try:
+            return row_d, fetch_detail(api_key, row_d["property_id"]), None, extra, False
+        except requests.RequestException as e:
+            return row_d, None, e, extra, False
+
+    try:
+        with ThreadPoolExecutor(max_workers=DETAIL_WORKERS) as ex:
+            futures = [ex.submit(_fetch, row) for row in pending]
+            for fut in as_completed(futures):
+                row_d, detail, err, extra, from_cache = fut.result()
+                if err is not None:
+                    print(f"  detail fetch failed for {row_d['property_id']}: {err}")
+                    # Persist progress so far so a failure partway through
+                    # doesn't lose already-enriched rows.
+                    con.commit()
+                    continue
+                fields = parse_detail_payload(row_d, detail)
+                if not from_cache:
+                    extra["detail"] = detail
+
+                update_hoa = "hoa_fee = :hoa_fee," if fields.get("hoa_fee") is not None else ""
+                update_mgmt = "management_fee = :management_fee," if fields.get("management_fee") is not None else ""
+                con.execute(
+                    f"""
+                    UPDATE properties SET
+                        num_units             = :num_units,
+                        beds_per_unit_json    = :beds_per_unit_json,
+                        baths_per_unit_json   = :baths_per_unit_json,
+                        units_source          = :units_source,
+                        source_listing_status = :source_listing_status,
+                        extra_info            = :extra_info,
+                        {update_hoa}
+                        {update_mgmt}
+                        detail_fetched_at     = :detail_fetched_at
+                    WHERE property_id = :property_id
+                    """,
+                    {**fields, "detail_fetched_at": now,
+                     "property_id": row_d["property_id"],
+                     "extra_info": json.dumps(extra)},
+                )
+                enriched += 1
+                if enriched % 50 == 0:
+                    con.commit()
+    finally:
+        # Flush on normal exit, interrupt, or exception so partial work is saved.
+        con.commit()
     return enriched
 
 
@@ -655,18 +782,24 @@ def main():
         return added, False
 
     county_cap = args.per_county_limit if args.per_county_limit is not None else MAX_PER_QUERY
-    stop = False
-    for county, state in counties_to_fetch:
-        if stop:
-            break
-        remaining_total = (args.limit - total_inserted) if args.limit is not None else county_cap
-        remaining = min(remaining_total, county_cap)
-        if remaining <= 0:
-            break
-        homes = fetch_query(api_key, county, state, STATUSES, remaining)
-        _, stop = ingest(homes)
-        con.commit()
-        print(f"  {county} County, {state}: {len(homes)} rows")
+    # Fetch every county's listings in parallel (IO-bound). SQLite writes stay
+    # on the main thread as each future completes. --limit is enforced across
+    # the combined results, so parallel fetches may overshoot slightly before
+    # ingest trims.
+    with ThreadPoolExecutor(max_workers=max(1, len(counties_to_fetch))) as ex:
+        futures = {
+            ex.submit(fetch_query, api_key, c, s, STATUSES, county_cap): (c, s)
+            for c, s in counties_to_fetch
+        }
+        stop = False
+        for fut in as_completed(futures):
+            county, state = futures[fut]
+            homes = fut.result()
+            print(f"  {county} County, {state}: {len(homes)} rows")
+            if stop:
+                continue
+            _, stop = ingest(homes)
+            con.commit()
 
     if args.skip_detail:
         enriched = 0

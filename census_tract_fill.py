@@ -19,10 +19,11 @@ Usage:
   uv run census_tract_fill.py --limit 200  # geocode up to 200 at a time
 """
 
+import argparse
+import json
 import os
 import sqlite3
 import time
-import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -43,7 +44,10 @@ HIGH_POVERTY_THRESHOLD = 0.15   # flag above this poverty rate
 
 
 def fetch_nj_tracts(api_key=None):
-    """Return list of (tract_fips_11, income, poverty_rate) for all NJ tracts."""
+    """Return list of (tract_fips_11, income, poverty_rate, raw_row) for all
+    NJ tracts. `raw_row` preserves the original Census row (header → value)
+    so downstream code can cache the unprocessed payload in extra_info.
+    """
     params = {
         "get": "B19013_001E,B17001_002E,B17001_001E,NAME",
         "for": "tract:*",
@@ -70,7 +74,7 @@ def fetch_nj_tracts(api_key=None):
         if income < 0 or pov_d <= 0:
             continue
         tract_fips = state + county + tract   # 11-digit
-        results.append((tract_fips, income, pov_n / pov_d))
+        results.append((tract_fips, income, pov_n / pov_d, dict(zip(headers, row))))
     return results
 
 
@@ -96,11 +100,14 @@ def ensure_schema(con):
             tract_fips               TEXT PRIMARY KEY,
             median_household_income  INTEGER,
             poverty_rate             REAL,
-            fetched_at               TEXT NOT NULL)"""
+            fetched_at               TEXT NOT NULL,
+            extra_info               TEXT)"""
     )
     existing = {r[1] for r in con.execute("PRAGMA table_info(properties)")}
     if "tract_fips" not in existing:
         con.execute("ALTER TABLE properties ADD COLUMN tract_fips TEXT")
+    from fetch import _ensure_extra_info
+    _ensure_extra_info(con, "tract_demographics")
     con.commit()
 
 
@@ -109,9 +116,9 @@ def store_tract_demographics(con, rows):
     with con:
         con.executemany(
             "INSERT OR REPLACE INTO tract_demographics"
-            " (tract_fips, median_household_income, poverty_rate, fetched_at)"
-            " VALUES (?, ?, ?, ?)",
-            [(f, inc, pov, now) for f, inc, pov in rows],
+            " (tract_fips, median_household_income, poverty_rate, fetched_at, extra_info)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(f, inc, pov, now, json.dumps(raw)) for f, inc, pov, raw in rows],
         )
 
 
@@ -128,7 +135,7 @@ def main():
     tracts = fetch_nj_tracts(CENSUS_KEY or None)
     store_tract_demographics(con, tracts)
     flagged = sum(
-        1 for _, inc, pov in tracts
+        1 for _, inc, pov, _ in tracts
         if inc < LOW_INCOME_THRESHOLD or pov > HIGH_POVERTY_THRESHOLD
     )
     print(f"Stored {len(tracts)} NJ census tracts "

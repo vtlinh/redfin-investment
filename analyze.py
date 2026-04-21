@@ -56,14 +56,6 @@ MIN_LIST_PRICE     = 100_000
 # Realtor.com `property_type` values we treat as multi-family
 MULTI_FAMILY_TYPES = {"multi_family", "duplex_triplex_quadplex"}
 
-# Source listing statuses (from detail endpoint) that mean the property is
-# no longer truly available even if the v3/list status is still "for_sale".
-INACTIVE_SOURCE_STATUSES = {
-    "pending", "under contract", "contingent", "sold", "closed",
-    "withdrawn", "expired", "cancelled", "canceled", "off market",
-}
-
-
 def monthly_mortgage_payment(principal, annual_rate, term_years):
     """Standard amortized mortgage P&I payment."""
     r = annual_rate / 12
@@ -258,20 +250,10 @@ def analyze(conn, cfg=None):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(properties)")}
     extras = [c for c in ("num_units", "beds_per_unit_json", "baths_per_unit_json") if c in cols]
     extras_sql = (", " + ", ".join(extras)) if extras else ""
-    active_sql = " AND is_active=1" if "is_active" in cols else ""
-    pending_sql = " AND COALESCE(is_pending,0)=0 AND COALESCE(is_contingent,0)=0" if "is_pending" in cols else ""
-    # Drop listings whose source MLS status says they're no longer available.
-    # NULL source_listing_status means we either haven't fetched detail or
-    # the field wasn't exposed — keep those; SQL `status='for_sale'` already
-    # filtered out the obvious inactive cases.
-    if "source_listing_status" in cols:
-        placeholders = ",".join("?" * len(INACTIVE_SOURCE_STATUSES))
-        sls_sql = (f" AND (source_listing_status IS NULL OR "
-                   f"LOWER(source_listing_status) NOT IN ({placeholders}))")
-        params = tuple(s.lower() for s in INACTIVE_SOURCE_STATUSES)
-    else:
-        sls_sql = ""
-        params = ()
+    # Status filters (is_active, is_pending/is_contingent, source_listing_status)
+    # are applied at display time by the webapp, not here. cashflow_analysis
+    # stores a result for every for-sale listing we've seen.
+    params = ()
     low_income_sql = ""
     if "tract_fips" in cols:
         low_income_sql = """,
@@ -292,9 +274,6 @@ def analyze(conn, cfg=None):
                p.list_date{extras_sql}{low_income_sql}
         FROM properties p
         WHERE p.status='for_sale' AND p.list_price IS NOT NULL AND p.list_price >= {MIN_LIST_PRICE}
-              {active_sql.replace('is_active', 'p.is_active')}
-              {pending_sql.replace('is_pending', 'p.is_pending').replace('is_contingent', 'p.is_contingent')}
-              {sls_sql.replace('source_listing_status', 'p.source_listing_status')}
         """,
         params,
     ).fetchall()

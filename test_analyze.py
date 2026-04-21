@@ -120,33 +120,32 @@ def test_analyze_multi_family_sums_units():
     assert mf["annual_income"] == 2200 * 2 * 12
 
 
-def test_analyze_skips_inactive_listings():
+def test_analyze_includes_inactive_listings():
     con = _seed_db()
     con.execute("UPDATE properties SET is_active=0 WHERE property_id='sfh1'")
     ids = {r["property_id"] for r in analyze.analyze(con)}
-    assert "sfh1" not in ids
-    assert "mf1" in ids
+    assert "sfh1" in ids
 
 
-def test_analyze_skips_pending_source_status():
+def test_analyze_includes_pending_source_status():
     con = _seed_db()
     con.execute("UPDATE properties SET source_listing_status='Pending' WHERE property_id='mf1'")
     ids = {r["property_id"] for r in analyze.analyze(con)}
-    assert "mf1" not in ids
+    assert "mf1" in ids
 
 
-def test_analyze_skips_pending_flag():
+def test_analyze_includes_pending_flag():
     con = _seed_db()
     con.execute("UPDATE properties SET is_pending=1 WHERE property_id='sfh1'")
     ids = {r["property_id"] for r in analyze.analyze(con)}
-    assert "sfh1" not in ids
+    assert "sfh1" in ids
 
 
-def test_analyze_skips_contingent_flag():
+def test_analyze_includes_contingent_flag():
     con = _seed_db()
     con.execute("UPDATE properties SET is_contingent=1 WHERE property_id='mf1'")
     ids = {r["property_id"] for r in analyze.analyze(con)}
-    assert "mf1" not in ids
+    assert "mf1" in ids
 
 
 def test_analyze_dedupes_same_coordinate_listings():

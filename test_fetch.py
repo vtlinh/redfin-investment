@@ -247,14 +247,12 @@ def test_enrich_pending_details_only_touches_new_rows(monkeypatch):
     monkeypatch.setattr(fetch, "fetch_detail", fake_fetch)
 
     enriched = fetch.enrich_pending_details(con, "fake-key")
-    # Detail endpoint only called for 'new_mf' (single_family resolved without call).
-    assert calls == ["new_mf"]
-    # Both 'new_mf' and 'sf' should be marked enriched.
+    # Detail endpoint is called for every eligible row (no type shortcut) —
+    # both 'new_mf' and 'sf'; 'old_mf' is skipped (already detailed) and
+    # 'stale' is skipped (inactive). Order is nondeterministic under parallel
+    # execution, so compare sets.
+    assert set(calls) == {"new_mf", "sf"}
     assert enriched == 2
-    row = con.execute(
-        "SELECT num_units, units_source FROM properties WHERE property_id='sf'"
-    ).fetchone()
-    assert (row["num_units"], row["units_source"]) == (1, "property_type")
 
 
 def test_build_rent_comps_skips_rows_without_bedrooms():

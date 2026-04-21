@@ -134,7 +134,8 @@ def rentcast_calls_this_month(con):
 
 def fetch_rentcast_zip(con, postal_code):
     """Fetch Rentcast market data for a zip. Logs the call regardless of outcome.
-    Returns {beds: median_rent} or {}.
+    Returns ({beds: median_rent}, {beds: raw_entry}) — the raw entries are
+    surfaced so callers can cache the unprocessed payload in extra_info.
     """
     _ensure_call_log(con)
     now = datetime.now(timezone.utc).isoformat()
@@ -145,26 +146,28 @@ def fetch_rentcast_zip(con, postal_code):
         r = requests.get(RENTCAST_MARKETS_URL, headers=headers,
                          params={"zipCode": postal_code, "historyRange": 1}, timeout=15)
         if r.status_code in (404, 400):
-            return {}
+            return {}, {}
         r.raise_for_status()
         data = r.json()
-        by_beds = {}
+        by_beds, raw_by_beds = {}, {}
         for entry in (data.get("rentalData") or {}).get("dataByBedrooms") or []:
             beds = entry.get("bedrooms")
             rent = entry.get("medianRent")
             if beds is not None and rent:
                 by_beds[int(beds)] = float(rent)
-        return by_beds
+                raw_by_beds[int(beds)] = entry
+        return by_beds, raw_by_beds
     except Exception as e:
         print(f"  Rentcast error ({postal_code}): {e}")
-        return {}
+        return {}, {}
 
 
 def fetch_hud_fmr(con, gaps):
     """Fetch HUD FMR for NJ. Maps FMR bedroom counts to our gaps.
     HUD FMR provides 0-4 bedroom estimates at the county level; we approximate
     zip -> county via the county_fips column and assign the FMR for the closest
-    bedroom count. Returns dict of (postal_code, beds, baths) -> rent.
+    bedroom count. Returns ({(postal_code, beds, baths): rent},
+    {(postal_code, beds, baths): raw_county_payload}).
     """
     headers = {"Authorization": f"Bearer {HUD_TOKEN}"}
     try:
@@ -173,13 +176,14 @@ def fetch_hud_fmr(con, gaps):
         data = r.json()
     except Exception as e:
         print(f"  HUD FMR fetch error: {e}")
-        return {}
+        return {}, {}
 
     # Build county_fips (5-digit) -> fmr lookup: {county_fips: {beds: monthly_rent}}
     # HUD response uses named keys; fips_code is 10 digits, first 5 are standard FIPS.
     BED_KEYS = {"Efficiency": 0, "One-Bedroom": 1, "Two-Bedroom": 2,
                 "Three-Bedroom": 3, "Four-Bedroom": 4}
     county_fmr = {}
+    county_raw = {}
     for county in (data.get("data") or {}).get("counties") or []:
         fips = str(county.get("fips_code") or "")[:5]
         if not fips:
@@ -191,10 +195,11 @@ def fetch_hud_fmr(con, gaps):
                 fmr_by_beds[idx] = float(v)
         if fmr_by_beds:
             county_fmr[fips] = fmr_by_beds
+            county_raw[fips] = county
 
     if not county_fmr:
         print("  HUD: no FMR data found in response")
-        return {}
+        return {}, {}
 
     # Build zip -> 5-digit county_fips map from DB
     zip_county = {}
@@ -205,6 +210,7 @@ def fetch_hud_fmr(con, gaps):
         zip_county[postal_code] = str(fips)[:5]
 
     results = {}
+    raw_by_key = {}
     for postal_code, beds, baths in gaps:
         fips = zip_county.get(postal_code)
         if not fips:
@@ -216,19 +222,26 @@ def fetch_hud_fmr(con, gaps):
         rent = fmr.get(bed_key)
         if rent:
             results[(postal_code, beds, baths)] = rent  # already monthly
-    return results
+            raw_by_key[(postal_code, beds, baths)] = county_raw.get(fips)
+    return results, raw_by_key
 
 
-def store_estimates(con, estimates, source):
+def store_estimates(con, estimates, source, raw_by_key=None):
+    """Insert rent estimates. ``raw_by_key`` optionally maps
+    (postal_code, beds, baths) -> raw API payload slice; stored in extra_info
+    so the original response can be re-examined without another API call."""
     now = datetime.now(timezone.utc).isoformat()
+    raw_by_key = raw_by_key or {}
     con.executemany(
         """
         INSERT OR REPLACE INTO external_rent_estimates
-            (postal_code, bedrooms, baths, rent_estimate, source, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (postal_code, bedrooms, baths, rent_estimate, source, fetched_at, extra_info)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            (postal_code, beds, baths, rent, source, now)
+            (postal_code, beds, baths, rent, source, now,
+             json.dumps(raw_by_key[(postal_code, beds, baths)])
+             if (postal_code, beds, baths) in raw_by_key else None)
             for (postal_code, beds, baths), rent in estimates.items()
         ],
     )
@@ -253,10 +266,13 @@ def main():
             rent_estimate REAL NOT NULL,
             source        TEXT NOT NULL,
             fetched_at    TEXT NOT NULL,
+            extra_info    TEXT,
             PRIMARY KEY (postal_code, bedrooms, baths, source)
         )
         """
     )
+    from fetch import _ensure_extra_info
+    _ensure_extra_info(con, "external_rent_estimates")
     con.commit()
 
     print("Analysing gaps...")
@@ -295,24 +311,29 @@ def main():
             else:
                 print(f"  Fetching {len(zips_to_fetch)} unique zip(s)...")
 
-            zip_data = {}
+            zip_data, zip_raw = {}, {}
             for postal_code in zips_to_fetch:
-                by_beds = fetch_rentcast_zip(con, postal_code)
+                by_beds, raw_by_beds = fetch_rentcast_zip(con, postal_code)
                 zip_data[postal_code] = by_beds
+                zip_raw[postal_code] = raw_by_beds
                 hits = len(by_beds)
                 print(f"  {postal_code}: {hits} bedroom bracket(s) returned")
                 time.sleep(0.25)
 
+            rentcast_raw = {}
             for postal_code, beds, baths in top_gaps:
                 if postal_code not in zip_data:
                     continue
                 rent = zip_data[postal_code].get(int(beds))
                 if rent:
                     rentcast_estimates[(postal_code, beds, baths)] = rent
+                    raw_entry = zip_raw.get(postal_code, {}).get(int(beds))
+                    if raw_entry is not None:
+                        rentcast_raw[(postal_code, beds, baths)] = raw_entry
 
             if rentcast_estimates:
                 with con:
-                    store_estimates(con, rentcast_estimates, "rentcast")
+                    store_estimates(con, rentcast_estimates, "rentcast", rentcast_raw)
                 print(f"Stored {len(rentcast_estimates)} Rentcast estimates across {len(zips_to_fetch)} zip(s).")
             else:
                 print("No Rentcast estimates retrieved.")
@@ -324,10 +345,10 @@ def main():
         already_fetched = rentcast_estimates if RENTCAST_KEY else {}
         hud_gaps = [k for k in top_gaps if k not in already_fetched]
         print(f"\nFetching HUD Fair Market Rents for {len(hud_gaps)} gaps...")
-        hud_estimates = fetch_hud_fmr(con, hud_gaps)
+        hud_estimates, hud_raw = fetch_hud_fmr(con, hud_gaps)
         if hud_estimates:
             with con:
-                store_estimates(con, hud_estimates, "hud_fmr")
+                store_estimates(con, hud_estimates, "hud_fmr", hud_raw)
             print(f"Stored {len(hud_estimates)} HUD FMR estimates.")
         else:
             print("No HUD FMR estimates retrieved.")

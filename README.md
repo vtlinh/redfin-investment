@@ -2,11 +2,11 @@
 
 A small ETL + analysis toolkit for evaluating NJ residential real estate as rental investments. Pulls listings from Realtor.com (via the `realty-in-us` RapidAPI wrapper), stores them in SQLite, computes year-1 cash flow and multi-year ROI, and serves the results through a Flask webapp.
 
-Current coverage: 2 NJ counties (Essex, Bergen), both for-sale and for-rent.
+Current coverage: 6 NJ counties (Essex, Bergen, Hudson, Passaic, Morris, Union), both for-sale and for-rent.
 
 ## Components
 
-- **`fetch.py`** — hits `POST /properties/v3/list` per county, UPSERTs each listing into a persistent `properties` table, calls `/properties/v3/detail` for newly-seen multi-family for-sale listings to resolve unit counts, then upserts the `rent_comps` cache from the for-rent rows. Commits incrementally per county and every 50 detail fetches so progress survives an interrupt. CLI flags: `--limit N` (total cap), `--per-county-limit N`, `--refresh-detail` (re-fetch HOA for condos/townhomes/coops with detail_fetched_at already set; off by default).
+- **`fetch.py`** — hits `POST /properties/v3/list` per county, UPSERTs each listing into a persistent `properties` table, calls `/properties/v3/detail` for newly-seen multi-family for-sale listings to resolve unit counts, then upserts the `rent_comps` cache from the for-rent rows. Commits incrementally per county and every 50 detail fetches so progress survives an interrupt. CLI flags: `--limit N` (total cap), `--per-county-limit N`, `--refresh-detail` (re-parse cached detail payload for rows missing HOA/management fees — reuses `extra_info.detail` cache, makes no API calls unless not yet cached).
 - **`analyze.py`** — reads `properties` + `rent_comps`, computes year-1 cash flow and annualized total ROI for each active for-sale listing, writes into `cashflow_analysis`. All financing/cost assumptions live in the `DEFAULTS` dict at the top of the file.
 - **`webapp.py`** + **`templates/index.html`** — Flask app (port 5000) serving an infinite-scroll, filterable, sortable list of active for-sale properties. Each row expands to a 15-year projection with per-cell breakdown tooltips. A settings panel lets users tweak the calculation assumptions and recompute the DB in place; settings persist across reloads via cookies. Cards display `Low income area` and `Has HOA` tags. Properties in low-income census tracts/ZIPs (median income <$60k or poverty >15%) are flagged and use 2× the configured vacancy and maintenance rates. Two default-on filters exclude low-income areas and listings with <5 photos.
 - **`rentcast_fill.py`** — (disabled by default) fills `external_rent_estimates` from Rentcast AVM / HUD FMR for the top-N gap ZIP buckets. Set `RENTCAST_FILL_ENABLE=1` to run.
@@ -45,7 +45,7 @@ The webapp lets the user override any of these per-session; the `POST /recompute
 
 ## Storage
 
-SQLite file `properties.db` (gitignored). Schema is persistent across runs — detail-enrichment work (unit counts, source listing status) is not redone for listings already inspected. Schema migration is handled by a lightweight `migrate()` that `ALTER`s in missing columns. `rent_comps` is upserted in place — buckets with no current rentals are left untouched rather than dropped.
+SQLite file `properties.db` (gitignored). Schema is persistent across runs — detail-enrichment work (unit counts, source listing status) is not redone for listings already inspected. Every API-derived table (`properties`, `zip_demographics`, `tract_demographics`, `external_rent_estimates`) carries an `extra_info` JSON column that caches the raw API payload, so extraction logic can be re-tuned and re-applied without new API calls. Schema migration is handled by a lightweight `migrate()` that `ALTER`s in missing columns. `rent_comps` is upserted in place — buckets with no current rentals are left untouched rather than dropped.
 
 ## API
 
