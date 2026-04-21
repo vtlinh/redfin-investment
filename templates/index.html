@@ -266,7 +266,7 @@
        or filters.min_hoa or filters.max_hoa or filters.no_hoa
        or not filters.hide_ghetto or not filters.hide_few_photos
        or not filters.hide_no_rent %}
-  <form class="filters" method="get">
+  <form class="filters" method="get" onsubmit="sessionStorage.setItem('collapseFilter', '1')">
     <div class="filter-header" id="filter-header"
          aria-expanded="{{ 'true' if filter_active else 'false' }}"
          onclick="toggleFilter()">
@@ -706,6 +706,13 @@
       const open = head.getAttribute("aria-expanded") === "true";
       head.setAttribute("aria-expanded", open ? "false" : "true");
       body.dataset.open = open ? "0" : "1";
+    }
+    if (sessionStorage.getItem("collapseFilter") === "1") {
+      sessionStorage.removeItem("collapseFilter");
+      const h = document.getElementById("filter-header");
+      const b = document.getElementById("filter-body");
+      if (h) h.setAttribute("aria-expanded", "false");
+      if (b) b.dataset.open = "0";
     }
 
     // ---- Calculation settings -------------------------------------------
