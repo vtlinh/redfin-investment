@@ -486,7 +486,14 @@ def parse_detail_payload(row, detail):
     list_units, list_src = units_from_list_row(row)
     detail_units, detail_src = units_from_detail(detail)
 
-    if detail_units is not None and detail_units > 1:
+    # Text heuristics ("duplex", "2-family") on single-unit property types like
+    # coops/condos almost always refer to a bi-level unit, not a two-family
+    # building. Trust list_units=1 for those types and only let detail override
+    # when it comes from a structured signal (description.units / MLS type).
+    structured_detail = detail_src in {"description_units", "mls_type", "unit_array"}
+    if detail_units is not None and detail_units > 1 and (
+        list_src != "property_type" or structured_detail
+    ):
         num_units = detail_units
         source = detail_src
     elif list_units is not None:
