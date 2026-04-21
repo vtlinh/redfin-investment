@@ -322,23 +322,15 @@
         </div>
         <div class="filter">
           <label class="field-label">HOA ($/mo)</label>
-          <div style="display:flex;align-items:center;gap:16px">
-            <div class="range">
-              <input type="number" name="min_hoa" min="0" placeholder="min"
-                class="hoa-input"
-                value="{{ filters.min_hoa if filters.min_hoa is not none else '' }}"
-                {{ 'disabled' if filters.no_hoa }}>
-              <input type="number" name="max_hoa" min="0" placeholder="max"
-                class="hoa-input"
-                value="{{ filters.max_hoa if filters.max_hoa is not none else '' }}"
-                {{ 'disabled' if filters.no_hoa }}>
-            </div>
-            <label style="display:flex;align-items:center;gap:16px;cursor:pointer;font-size:0.85rem;color:#666">
-              <input type="checkbox" name="no_hoa" value="1" id="no-hoa-cb"
-                onchange="onNoHoaChange(this)" style="width:auto;margin:0"
-                {{ 'checked' if filters.no_hoa }}>
-              No HOA
-            </label>
+          <div class="range">
+            <input type="number" name="min_hoa" min="0" placeholder="min"
+              class="hoa-input"
+              value="{{ filters.min_hoa if filters.min_hoa is not none else '' }}"
+              {{ 'disabled' if filters.no_hoa }}>
+            <input type="number" name="max_hoa" min="0" placeholder="max"
+              class="hoa-input"
+              value="{{ filters.max_hoa if filters.max_hoa is not none else '' }}"
+              {{ 'disabled' if filters.no_hoa }}>
           </div>
         </div>
       </div>
@@ -361,6 +353,14 @@
         </div>
       </div>
 
+      <div class="filter-row" style="margin-top:0.25rem">
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.9rem">
+          <input type="checkbox" name="no_hoa" value="1" id="no-hoa-cb"
+            onchange="onNoHoaChange(this)"
+            {{ 'checked' if filters.no_hoa }}>
+          Hide properties with HOA
+        </label>
+      </div>
       <div class="filter-row" style="margin-top:0.25rem">
         <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.9rem">
           <input type="checkbox" name="no_rent_info" value="1"
