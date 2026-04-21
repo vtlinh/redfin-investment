@@ -262,6 +262,7 @@
        or (filters.min_bedrooms or 1)|int > 1 or (filters.min_baths or 1)|int > 1
        or filters.min_price or filters.max_price
        or filters.min_sqft or filters.max_sqft or filters.q
+       or filters.min_hoa or filters.max_hoa or filters.no_hoa
        or filters.no_rent_info or filters.hide_ghetto %}
   <form class="filters" method="get">
     <div class="filter-header" id="filter-header"
@@ -317,6 +318,29 @@
               value="{{ filters.max_price or '' }}">
           </div>
         </div>
+      </div>
+      <div class="filter-row">
+        <div class="filter">
+          <label class="field-label">HOA ($/mo)</label>
+          <div class="range">
+            <input type="number" name="min_hoa" min="0" placeholder="min"
+              class="hoa-input"
+              value="{{ filters.min_hoa if filters.min_hoa is not none else '' }}"
+              {{ 'disabled' if filters.no_hoa }}>
+            <input type="number" name="max_hoa" min="0" placeholder="max"
+              class="hoa-input"
+              value="{{ filters.max_hoa if filters.max_hoa is not none else '' }}"
+              {{ 'disabled' if filters.no_hoa }}>
+            <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;font-size:0.85rem;color:#666;margin-left:0.5rem">
+              <input type="checkbox" name="no_hoa" value="1" id="no-hoa-cb"
+                onchange="onNoHoaChange(this)"
+                {{ 'checked' if filters.no_hoa }}>
+              No HOA
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="filter-row">
         <div class="filter">
           <label class="field-label">Sqft</label>
           <div class="range">
@@ -326,6 +350,8 @@
               value="{{ filters.max_sqft or '' }}">
           </div>
         </div>
+      </div>
+      <div class="filter-row">
         <div class="filter">
           <label class="field-label">Search</label>
           <input type="text" name="q" placeholder="address, city, ZIP, agent…"
@@ -600,6 +626,15 @@
         frag.appendChild(sep);
         frag.appendChild(_ptRow("Total", entries.reduce((s, [, v]) => s + v, 0), true));
       }
+      if (el.dataset.note) {
+        const sep = document.createElement("div");
+        sep.style.cssText = "border-top:1px solid #eee;margin:0.2rem 0";
+        frag.appendChild(sep);
+        const note = document.createElement("div");
+        note.style.cssText = "font-size:0.75rem;color:#b45309;padding:0.15rem 0.1rem";
+        note.textContent = el.dataset.note;
+        frag.appendChild(note);
+      }
       _pt.replaceChildren(frag);
       const rect = el.getBoundingClientRect();
       _pt.style.top  = (rect.bottom + window.scrollY + 4) + "px";
@@ -648,6 +683,12 @@
           n ? `${n} selected` : "Any type";
       });
     });
+    function onNoHoaChange(cb) {
+      document.querySelectorAll(".hoa-input").forEach(inp => {
+        inp.disabled = cb.checked;
+        if (cb.checked) inp.value = "";
+      });
+    }
     function toggleFilter() {
       const head = document.getElementById("filter-header");
       const body = document.getElementById("filter-body");

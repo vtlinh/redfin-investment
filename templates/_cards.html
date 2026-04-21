@@ -93,6 +93,7 @@
           </td>
           <td class="proj-breakdown"
               data-breakdown='{{ {"Tax": y.tax|round|int, "Insurance": y.ins|round|int, "HOA": y.hoa_yr|round|int, "Maintenance": y.maint|round|int, "Other": y.other_costs|round|int, "Vacancy": y.vacancy|round|int, "Management": y.mgmt|round|int}|tojson }}'
+              {% if p.is_low_income %}data-note="Vacancy & maintenance doubled (low-income area)"{% endif %}
               onmouseenter="showProjTooltip(this)"
               onmouseleave="scheduleProjHide()"
               onclick="toggleProjTooltip(this)">

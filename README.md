@@ -8,7 +8,7 @@ Current coverage: 2 NJ counties (Essex, Bergen), both for-sale and for-rent.
 
 - **`fetch.py`** — hits `POST /properties/v3/list` per county, UPSERTs each listing into a persistent `properties` table, calls `/properties/v3/detail` for newly-seen multi-family for-sale listings to resolve unit counts, then rebuilds the `rent_comps` cache from the for-rent rows.
 - **`analyze.py`** — reads `properties` + `rent_comps`, computes year-1 cash flow and annualized total ROI for each active for-sale listing, writes into `cashflow_analysis`. All financing/cost assumptions live in the `DEFAULTS` dict at the top of the file.
-- **`webapp.py`** + **`templates/index.html`** — Flask app (port 5000) serving a paginated, filterable, sortable list of active for-sale properties. Each row expands to a 15-year projection. A settings panel lets users tweak the 18 calculation assumptions and recompute the DB in place; settings persist across reloads via cookies.
+- **`webapp.py`** + **`templates/index.html`** — Flask app (port 5000) serving an infinite-scroll, filterable, sortable list of active for-sale properties. Each row expands to a 15-year projection with per-cell breakdown tooltips. A settings panel lets users tweak the calculation assumptions and recompute the DB in place; settings persist across reloads via cookies. Properties in low-income census tracts/ZIPs (median income <$60k or poverty >15%) are flagged and use 2× the configured vacancy and maintenance rates.
 - **`test_fetch.py`**, **`test_analyze.py`** — pytest unit tests.
 
 ## Setup

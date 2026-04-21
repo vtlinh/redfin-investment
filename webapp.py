@@ -126,7 +126,8 @@ def irr(flows):
     return (lo + hi) / 2
 
 
-def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg):
+def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg,
+            is_low_income=False):
     """Return a list of per-year dicts for years 1..cfg['holding_years'].
 
     Each cost line grows at its own rate. Vacancy and management fee are
@@ -140,13 +141,14 @@ def project(list_price, year1_rent, year1_mortgage, hoa_fee, cfg):
     sell_cost       = cfg["sell_cost_pct"]
     value_growth    = cfg["value_growth"]
     holding_years   = int(cfg["holding_years"])
-    vac_rate        = cfg["vacancy_rate"]
+    mult            = analyze.LOW_INCOME_MULT if is_low_income else 1.0
+    vac_rate        = cfg["vacancy_rate"] * mult
     mgmt_rate       = cfg["management_fee_rate"]
 
     y1_tax   = list_price * PROPERTY_TAX_RATE
     y1_ins   = list_price * cfg["insurance_rate"]
     y1_hoa   = (hoa_fee or 0) * 12
-    y1_maint = list_price * cfg["maintenance_rate"]
+    y1_maint = list_price * cfg["maintenance_rate"] * mult
     y1_other = list_price * cfg["other_costs_rate"]
 
     out = []
@@ -225,6 +227,9 @@ def parse_filters(args):
         "max_price":      _int("max_price"),
         "min_sqft":       _int("min_sqft"),
         "max_sqft":       _int("max_sqft"),
+        "min_hoa":        _int("min_hoa"),
+        "max_hoa":        _int("max_hoa"),
+        "no_hoa":         args.get("no_hoa") == "1",
         "q":              (args.get("q") or "").strip(),
         "no_rent_info":   args.get("no_rent_info") == "1",
         "hide_ghetto":    "1" in args.getlist("hide_ghetto") if "hide_ghetto" in args else True,
@@ -261,6 +266,15 @@ def build_where(filters):
     if filters["max_sqft"]:
         clauses.append("p.area_sqft <= ?")
         params.append(filters["max_sqft"])
+    if filters.get("no_hoa"):
+        clauses.append("(p.hoa_fee IS NULL OR p.hoa_fee = 0)")
+    else:
+        if filters.get("min_hoa") is not None:
+            clauses.append("COALESCE(p.hoa_fee, 0) >= ?")
+            params.append(filters["min_hoa"])
+        if filters.get("max_hoa") is not None:
+            clauses.append("COALESCE(p.hoa_fee, 0) <= ?")
+            params.append(filters["max_hoa"])
     if filters["q"]:
         like = f"%{filters['q']}%"
         clauses.append(
@@ -295,7 +309,7 @@ def filter_querystring(filters):
         if k == "property_types":
             for t in v:
                 parts.append(("property_type", t))
-        elif k in ("no_rent_info", "hide_ghetto"):
+        elif k in ("no_rent_info", "hide_ghetto", "no_hoa"):
             if v:
                 parts.append((k, "1"))
         elif v not in (None, "", 0):
@@ -527,7 +541,8 @@ def fetch_page(con, page, filters, cfg, sort):
         for r in rows:
             d = dict(r)
             d["projection"] = project(d["list_price"], d["annual_income"],
-                                      d["mortgage"], d["hoa_fee"], cfg)
+                                      d["mortgage"], d["hoa_fee"], cfg,
+                                      is_low_income=bool(d.get("is_low_income")))
             d["unit_breakdown"] = unit_breakdown(d)
             if d["projection"]:
                 d["total_roi"] = d["projection"][-1]["annual_roi"]

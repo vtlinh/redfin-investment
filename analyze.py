@@ -45,6 +45,11 @@ DEFAULTS = {
 # Non-configurable (project-wide assumption).
 PROPERTY_TAX_RATE = 0.025  # Essex/Bergen NJ avg
 
+# Multiplier applied to vacancy AND maintenance rates for properties in
+# low-income areas (income<$60k or poverty >15% at tract level, falling
+# back to zip).
+LOW_INCOME_MULT = 2.0
+
 # Listings below this list price are excluded (likely land, teaser auctions, or data errors).
 MIN_LIST_PRICE     = 100_000
 
@@ -68,7 +73,8 @@ def monthly_mortgage_payment(principal, annual_rate, term_years):
     return principal * (r * (1 + r) ** n) / ((1 + r) ** n - 1)
 
 
-def total_roi(list_price, year1_rent, year1_mortgage, year1_components, cfg):
+def total_roi(list_price, year1_rent, year1_mortgage, year1_components, cfg,
+              is_low_income=False):
     """Cumulative ROI if sold at end of cfg['holding_years'].
 
     `year1_components` is a dict of {tax, insurance, hoa, maintenance, other}
@@ -82,7 +88,9 @@ def total_roi(list_price, year1_rent, year1_mortgage, year1_components, cfg):
     loan_balance    = list_price - down_payment
     monthly_payment = year1_mortgage / 12
     monthly_rate    = cfg["interest_rate"] / 12
-    vac_rate        = cfg["vacancy_rate"]
+    mult            = LOW_INCOME_MULT if is_low_income else 1.0
+    vac_rate        = cfg["vacancy_rate"] * mult
+    y1_maint_scaled = year1_components["maintenance"] * mult
     mgmt_rate       = cfg["management_fee_rate"]
 
     cumulative_cash = 0.0
@@ -93,7 +101,7 @@ def total_roi(list_price, year1_rent, year1_mortgage, year1_components, cfg):
         tax   = year1_components["tax"]         * (1 + cfg["tax_growth"])         ** e
         ins   = year1_components["insurance"]   * (1 + cfg["insurance_growth"])   ** e
         hoa   = year1_components["hoa"]         * (1 + cfg["hoa_growth"])         ** e
-        maint = year1_components["maintenance"] * (1 + cfg["maintenance_growth"]) ** e
+        maint = y1_maint_scaled                * (1 + cfg["maintenance_growth"]) ** e
         other = year1_components["other"]       * (1 + cfg["other_costs_growth"]) ** e
         non_mtg = tax + ins + hoa + maint + other + rent * vac_rate + rent * mgmt_rate
         principal_paid = 0.0
@@ -264,15 +272,29 @@ def analyze(conn, cfg=None):
     else:
         sls_sql = ""
         params = ()
+    low_income_sql = ""
+    if "tract_fips" in cols:
+        low_income_sql = """,
+               CASE WHEN (
+                 (p.tract_fips IS NOT NULL AND p.tract_fips IN (
+                   SELECT tract_fips FROM tract_demographics
+                   WHERE median_household_income < 60000 OR poverty_rate > 0.15))
+                 OR
+                 (p.tract_fips IS NULL AND p.postal_code IN (
+                   SELECT postal_code FROM zip_demographics
+                   WHERE median_household_income < 60000 OR poverty_rate > 0.15))
+               ) THEN 1 ELSE 0 END AS is_low_income"""
     rows = conn.execute(
         f"""
-        SELECT property_id, list_price, property_type, city,
-               bedrooms, baths_full, baths_total, hoa_fee,
-               latitude, longitude, address_line, postal_code,
-               list_date{extras_sql}
-        FROM properties
-        WHERE status='for_sale' AND list_price IS NOT NULL AND list_price >= {MIN_LIST_PRICE}
-              {active_sql}{pending_sql}{sls_sql}
+        SELECT p.property_id, p.list_price, p.property_type, p.city,
+               p.bedrooms, p.baths_full, p.baths_total, p.hoa_fee,
+               p.latitude, p.longitude, p.address_line, p.postal_code,
+               p.list_date{extras_sql}{low_income_sql}
+        FROM properties p
+        WHERE p.status='for_sale' AND p.list_price IS NOT NULL AND p.list_price >= {MIN_LIST_PRICE}
+              {active_sql.replace('is_active', 'p.is_active')}
+              {pending_sql.replace('is_pending', 'p.is_pending').replace('is_contingent', 'p.is_contingent')}
+              {sls_sql.replace('source_listing_status', 'p.source_listing_status')}
         """,
         params,
     ).fetchall()
@@ -293,9 +315,13 @@ def analyze(conn, cfg=None):
         annual_tax    = list_price * PROPERTY_TAX_RATE
         annual_ins    = list_price * cfg["insurance_rate"]
         annual_hoa    = (r["hoa_fee"] or 0) * 12
-        annual_maint  = list_price * cfg["maintenance_rate"]
+        annual_maint  = list_price * cfg["maintenance_rate"]  # base; low-income doubling applied below
         annual_other  = list_price * cfg["other_costs_rate"]
-        annual_vac    = annual_rent * cfg["vacancy_rate"]
+        keys = r.keys() if hasattr(r, "keys") else []
+        is_low_income = bool(r["is_low_income"]) if "is_low_income" in keys else False
+        mult = LOW_INCOME_MULT if is_low_income else 1.0
+        annual_vac    = annual_rent * cfg["vacancy_rate"] * mult
+        annual_maint  = annual_maint * mult
         annual_mgmt   = annual_rent * cfg["management_fee_rate"]
 
         non_mortgage = (annual_tax + annual_ins + annual_hoa + annual_maint +
@@ -310,7 +336,8 @@ def analyze(conn, cfg=None):
             "maintenance": annual_maint,
             "other":       annual_other,
         }
-        troi = total_roi(list_price, annual_rent, annual_mort, components, cfg)
+        troi = total_roi(list_price, annual_rent, annual_mort, components, cfg,
+                         is_low_income=is_low_income)
 
         results.append({
             "property_id":         r["property_id"],
