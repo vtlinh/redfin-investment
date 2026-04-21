@@ -38,9 +38,8 @@ CENSUS_URL  = "https://api.census.gov/data/2023/acs/acs5"
 FCC_URL     = "https://geo.fcc.gov/api/census/block/find"
 
 # Deprivation thresholds (same logic used in webapp.py build_where).
-LOW_INCOME_HARD   = 50_000   # always flag below this
-LOW_INCOME_SOFT   = 70_000   # flag below this when poverty is also elevated
-HIGH_POVERTY_SOFT = 0.15     # poverty threshold for the soft tier
+LOW_INCOME_THRESHOLD = 70_000   # flag below this income
+HIGH_POVERTY_THRESHOLD = 0.15   # flag above this poverty rate
 
 
 def fetch_nj_tracts(api_key=None):
@@ -130,7 +129,7 @@ def main():
     store_tract_demographics(con, tracts)
     flagged = sum(
         1 for _, inc, pov in tracts
-        if inc < LOW_INCOME_HARD or (inc < LOW_INCOME_SOFT and pov > HIGH_POVERTY_SOFT)
+        if inc < LOW_INCOME_THRESHOLD or pov > HIGH_POVERTY_THRESHOLD
     )
     print(f"Stored {len(tracts)} NJ census tracts "
           f"({flagged} flagged as deprived).")

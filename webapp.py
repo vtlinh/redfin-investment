@@ -277,13 +277,13 @@ def build_where(filters):
             "NOT ("
             "  (p.tract_fips IS NOT NULL AND p.tract_fips IN ("
             "    SELECT tract_fips FROM tract_demographics"
-            "    WHERE median_household_income < 50000"
-            "       OR (median_household_income < 70000 AND poverty_rate > 0.15)))"
+            "    WHERE median_household_income < 70000"
+            "       OR poverty_rate > 0.15)))"
             "  OR"
             "  (p.tract_fips IS NULL AND p.postal_code IN ("
             "    SELECT postal_code FROM zip_demographics"
-            "    WHERE median_household_income < 50000"
-            "       OR (median_household_income < 70000 AND poverty_rate > 0.15)))"
+            "    WHERE median_household_income < 70000"
+            "       OR poverty_rate > 0.15)))"
             ")"
         )
     return " AND ".join(clauses), params
@@ -510,13 +510,13 @@ def fetch_page(con, page, filters, cfg, sort):
                        CASE WHEN (
                          (p.tract_fips IS NOT NULL AND p.tract_fips IN (
                            SELECT tract_fips FROM tract_demographics
-                           WHERE median_household_income < 50000
-                              OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+                           WHERE median_household_income < 70000
+                              OR poverty_rate > 0.15)))
                          OR
                          (p.tract_fips IS NULL AND p.postal_code IN (
                            SELECT postal_code FROM zip_demographics
-                           WHERE median_household_income < 50000
-                              OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+                           WHERE median_household_income < 70000
+                              OR poverty_rate > 0.15)))
                        ) THEN 1 ELSE 0 END AS is_low_income
                 FROM cashflow_analysis c JOIN properties p USING(property_id)
                 WHERE {where}
@@ -589,13 +589,13 @@ def index():
               AND (
                 (p.tract_fips IS NOT NULL AND p.tract_fips IN (
                   SELECT tract_fips FROM tract_demographics
-                  WHERE median_household_income < 50000
-                     OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+                  WHERE median_household_income < 70000
+                     OR poverty_rate > 0.15)))
                 OR
                 (p.tract_fips IS NULL AND p.postal_code IN (
                   SELECT postal_code FROM zip_demographics
-                  WHERE median_household_income < 50000
-                     OR (median_household_income < 70000 AND poverty_rate > 0.15)))
+                  WHERE median_household_income < 70000
+                     OR poverty_rate > 0.15)))
               )"""
     ).fetchone()[0]
     con.close()
